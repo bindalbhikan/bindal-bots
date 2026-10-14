@@ -56,7 +56,7 @@ async function login(request, env, url) {
   const used = `used:${claim.nonce}`;
   if (await env.DASH.get(used)) return signInPage("This sign-in link was already used. Ask the bot for a new one with /dashboard.");
   await env.DASH.put(used, "1", { expirationTtl: 3600 });
-  const session = await sign(env, { kind: "session", chat: claim.chat, who: claim.who || "", exp: Date.now() + SESSION_DAYS * 86400000 });
+  const session = await sign(env, { kind: "session", chat: claim.chat, exp: Date.now() + SESSION_DAYS * 86400000 });
   return new Response(null, {
     status: 303,
     headers: { Location: "/", "Set-Cookie": `${COOKIE}=${session}; Path=/; Max-Age=${SESSION_DAYS * 86400}; HttpOnly; Secure; SameSite=Lax` },

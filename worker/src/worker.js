@@ -224,7 +224,7 @@ export default {
       return new Response("ok");
     }
     // Reply after the 200 so Telegram never retries a slow GitHub call.
-    ctx.waitUntil(handle(env, msg.chat.id, msg.message_id, text, msg.from?.first_name));
+    ctx.waitUntil(handle(env, msg.chat.id, msg.message_id, text));
     return new Response("ok");
   },
 
@@ -277,11 +277,11 @@ async function pushDashboard(request, env, key) {
 
 // Dashboard sign-in: a link carrying a token signed with SESSION_KEY (shared with the dashboard
 // worker), valid 10 minutes and usable once. Only allowed chats ever reach this.
-async function sendDashboardLink(env, chatId, replyTo, who) {
+async function sendDashboardLink(env, chatId, replyTo) {
   if (!env.SESSION_KEY || !env.DASHBOARD_PAGE) {
     return sendMessage(env, chatId, "🖥 <b>Dashboard</b>\n\nSign-in is not set up yet.", replyTo);
   }
-  const claim = { kind: "login", chat: String(chatId), who: who || "", nonce: crypto.randomUUID(), exp: Date.now() + 10 * 60000 };
+  const claim = { kind: "login", chat: String(chatId), nonce: crypto.randomUUID(), exp: Date.now() + 10 * 60000 };
   const body = b64url(new TextEncoder().encode(JSON.stringify(claim)));
   const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.SESSION_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)));
@@ -324,7 +324,7 @@ async function handleTap(env, cb) {
   }
   if (data === "db") {
     await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id });
-    return sendDashboardLink(env, chatId, undefined, cb.from?.first_name);
+    return sendDashboardLink(env, chatId, undefined);
   }
   if (data === "hp") {
     await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id });
@@ -338,12 +338,12 @@ async function handleTap(env, cb) {
   if (data.startsWith("r:")) {
     await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id, text: "Starting…" });
     await show(SCREENS.main.title, SCREENS.main.rows);   // menu stays ready for the next tap
-    return handle(env, chatId, undefined, `/${data.slice(2)}`, cb.from?.first_name);
+    return handle(env, chatId, undefined, `/${data.slice(2)}`);
   }
   return telegram(env, "answerCallbackQuery", { callback_query_id: cb.id });
 }
 
-async function handle(env, chatId, replyTo, text, who) {
+async function handle(env, chatId, replyTo, text) {
   const [head, ...rawArgs] = text.split(/\s+/);
   const name = head.slice(1).split("@")[0].toLowerCase();
   const reply = (t, markup) => sendMessage(env, chatId, t, replyTo, markup);
@@ -354,7 +354,7 @@ async function handle(env, chatId, replyTo, text, who) {
       return await reply(SCREENS.main.title, keyboard(SCREENS.main.rows));
     }
     if (name === "help") return await reply(helpText());
-    if (name === "dashboard") return await sendDashboardLink(env, chatId, replyTo, who);
+    if (name === "dashboard") return await sendDashboardLink(env, chatId, replyTo);
     if (name === "menu") return await reply(SCREENS.main.title, keyboard(SCREENS.main.rows));
     if (name === "status") return await reply(await statusText(env), keyboard([[["🔄 Refresh", "st"], ["📋 Menu", "m:main"]]]));
 
@@ -381,7 +381,6 @@ async function handle(env, chatId, replyTo, text, who) {
       "",
       ...(what ? [`📅 ${esc(what)}`] : []),
       eta,
-      ...(who ? [`👤 ${esc(who)}`] : []),
       "",
       "<i>Report will come here.</i>",
     ].join("\n"));
