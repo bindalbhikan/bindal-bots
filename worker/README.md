@@ -13,7 +13,7 @@ only scheduler of the daily runs (cron triggers in `wrangler.toml`, times in `SC
 | `/ajiospf [dry]` | `ajio-spf.yml` (dry = only list what would be raised / replied) |
 | `/salepic [YYYY-MM]` | `sale.yml` - picture of the month sheet |
 | `/vmspic [YYYY-MM]` | `vms.yml` - picture of the month sheet |
-| `/menu` | buttons for every report (AJIO SPF LIVE asks to confirm first) |
+| `/menu` (or the **📋 Menu** button under the chat box) | one message with buttons: report → period (yesterday / today / last 7 days / this month / sheet picture); AJIO SPF LIVE asks to confirm first |
 | `/status` | last run of each: result, how long it took, next auto run |
 | `/help` | command list |
 

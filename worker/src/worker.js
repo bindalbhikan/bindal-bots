@@ -2,7 +2,7 @@
 //
 // Secrets (wrangler secret put): TELEGRAM_BOT_TOKEN, GITHUB_TOKEN, WEBHOOK_SECRET, ALLOWED_CHAT_IDS
 // ALLOWED_CHAT_IDS (secret) + EXTRA_CHAT_IDS (wrangler.toml var) are comma-separated chat ids;
-// messages and menu taps from any other chat are ignored. Each run's report goes to the chat
+// messages and button taps from any other chat are ignored. Each run's report goes to the chat
 // that asked for it.
 
 // All bots live in one repo; each command starts one of its workflows.
@@ -16,23 +16,26 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const COMMANDS = {
   sale: {
     workflow: "sale.yml",
+    icon: "📈",
     label: "Daily sale report",
-    usage: "/sale today  ·  /sale  ·  /sale 2026-10-01  ·  /sale 2026-10-01 2026-10-06",
+    usage: "/sale · /sale today · /sale 2026-10-01 2026-10-06",
     minutes: 1,
     inputs: (args) =>
       args.length === 1 && args[0].toLowerCase() === "today" ? { today: "1" } : dateRange(args),
   },
   vms: {
     workflow: "vms.yml",
+    icon: "📹",
     label: "Myntra VMS report",
-    usage: "/vms  ·  /vms 2026-10-01  ·  /vms 2026-10-01 2026-10-06",
+    usage: "/vms · /vms 2026-10-01 2026-10-06",
     minutes: 2,
     inputs: dateRange,
   },
   ajiotat: {
     workflow: "ajio-tat.yml",
+    icon: "📦",
     label: "AJIO TAT update",
-    usage: "/ajiotat  ·  /ajiotat 3  (today + 3 previous days)",
+    usage: "/ajiotat · /ajiotat 3  (today + 3 previous days)",
     minutes: 2,
     inputs: (args) => {
       if (args.length === 0) return {};
@@ -42,8 +45,9 @@ const COMMANDS = {
   },
   ajiospf: {
     workflow: "ajio-spf.yml",
+    icon: "🧾",
     label: "AJIO SPF claims",
-    usage: "/ajiospf  ·  /ajiospf dry  (dry = only list what would be raised / replied)",
+    usage: "/ajiospf · /ajiospf dry  (dry = only list, nothing posted)",
     minutes: 13,
     inputs: (args) => {
       if (args.length === 0) return {};
@@ -55,16 +59,18 @@ const COMMANDS = {
   // /status and of the measured run time (LibreOffice makes them slower than a report).
   salepic: {
     workflow: "sale.yml",
+    icon: "🖼",
     label: "Sale sheet picture",
-    usage: "/salepic  ·  /salepic 2026-09",
+    usage: "/salepic · /salepic 2026-09",
     picture: true,
     minutes: 4,
     inputs: monthArg,
   },
   vmspic: {
     workflow: "vms.yml",
+    icon: "🖼",
     label: "VMS sheet picture",
-    usage: "/vmspic  ·  /vmspic 2026-09",
+    usage: "/vmspic · /vmspic 2026-09",
     picture: true,
     minutes: 4,
     inputs: monthArg,
@@ -87,15 +93,59 @@ const SCHEDULE = [
   { ist: "5:30 PM daily", cron: "0 12 * * *", cmd: "ajiotat" },
 ];
 
-// /menu buttons. callback_data is "<command> <args>" (Telegram allows 64 bytes).
-// AJIO SPF live posts to AJIO, so its button asks for a second tap first.
-const MENU = [
-  [["📈 Sale (yesterday)", "sale"], ["📊 Sale today", "sale today"]],
-  [["📹 Myntra VMS", "vms"], ["📦 AJIO TAT", "ajiotat"]],
-  [["🧾 AJIO SPF (dry)", "ajiospf dry"], ["⚠️ AJIO SPF LIVE", "confirm ajiospf"]],
-  [["🖼 Sale sheet", "salepic"], ["🖼 VMS sheet", "vmspic"]],
-  [["📋 Status", "status"], ["❓ Help", "help"]],
-];
+// The button menu. Every screen edits the same message. Button data:
+//   "m:<screen>" open a screen · "r:<command line>" start a run · "c:<command line>" ask first
+//   "st" status · "hp" help. Telegram allows 64 bytes of data per button.
+const BACK = [["⬅️ Back", "m:main"]];
+const SCREENS = {
+  main: {
+    title: "📊 <b>Bindal Exports — Reports</b>\nChoose a report:",
+    rows: [
+      [["📈 Sale", "m:sale"], ["📹 Myntra VMS", "m:vms"]],
+      [["📦 AJIO TAT", "m:tat"], ["🧾 AJIO SPF", "m:spf"]],
+      [["📋 Status", "st"], ["❓ Help", "hp"]],
+    ],
+  },
+  sale: {
+    title: "📈 <b>Daily sale report</b>\nOMSGuru + Flipkart FBF + Myntra SJIT → SALE REPORT.xlsx",
+    rows: [
+      [["Yesterday", "r:sale"], ["Today so far", "r:sale today"]],
+      [["Last 7 days", "r:sale @week"], ["This month", "r:sale @month"]],
+      [["🖼 Month sheet picture", "r:salepic"]],
+      BACK,
+    ],
+  },
+  vms: {
+    title: "📹 <b>Myntra VMS report</b>\nPacking video check by SLA date → MYNTRA ORDER ID WISE VMS.xlsx",
+    rows: [
+      [["Today", "r:vms"], ["Last 7 days", "r:vms @week"]],
+      [["This month", "r:vms @month"], ["🖼 Month sheet picture", "r:vmspic"]],
+      BACK,
+    ],
+  },
+  tat: {
+    title: "📦 <b>AJIO TAT update</b>\nDispatch TAT (10:10 rule) + courier pickup → AJIO_TAT_MASTER.xlsx",
+    rows: [
+      [["Today", "r:ajiotat"], ["Last 3 days", "r:ajiotat 3"], ["Last 7 days", "r:ajiotat 7"]],
+      BACK,
+    ],
+  },
+  spf: {
+    title: "🧾 <b>AJIO SPF claims</b>\nRaise SPF tickets + follow-ups → AJIO MASTER.xlsx\n<i>Dry run only lists what would be posted. LIVE posts on AJIO.</i>",
+    rows: [
+      [["🧪 Dry run", "r:ajiospf dry"], ["⚠️ LIVE run", "c:ajiospf"]],
+      BACK,
+    ],
+  },
+};
+// Always-visible buttons under the chat box; their text arrives as a normal message.
+const KEYBOARD_MENU = "📋 Menu";
+const KEYBOARD_STATUS = "📊 Status";
+const REPLY_KEYBOARD = {
+  keyboard: [[{ text: KEYBOARD_MENU }, { text: KEYBOARD_STATUS }]],
+  resize_keyboard: true,
+  is_persistent: true,
+};
 
 function dateRange(args) {
   if (args.length === 0) return {};
@@ -103,9 +153,33 @@ function dateRange(args) {
   return args.length === 2 ? { from: args[0], to: args[1] } : { from: args[0] };
 }
 
+// "@week" / "@month" from the buttons become dates, in IST. Sale reports end yesterday,
+// the VMS report (by SLA date) ends today.
+function expandPeriod(name, args) {
+  if (args.length !== 1 || !args[0].startsWith("@")) return args;
+  const ist = (d) => new Date(d.getTime() + 330 * 60000).toISOString().slice(0, 10);
+  const today = new Date();
+  const day = (n) => new Date(today.getTime() - n * 86400000);
+  const end = name === "sale" ? day(1) : today;
+  const start = args[0] === "@week" ? new Date(end.getTime() - 6 * 86400000) : null;
+  const from = start ? ist(start) : `${ist(end).slice(0, 8)}01`;
+  return [from, ist(end)];
+}
+
 function helpText() {
-  const lines = Object.entries(COMMANDS).map(([, c]) => `• ${c.label}\n   ${c.usage}`);
-  return ["Commands:", ...lines, "", "/menu — buttons for every report", "/status — last run of each report"].join("\n");
+  const lines = Object.values(COMMANDS).map((c) => `${c.icon} <b>${c.label}</b>\n<code>${esc(c.usage)}</code>`);
+  const auto = SCHEDULE.map((s) => `• ${COMMANDS[s.cmd].label}: ${s.ist}`);
+  return [
+    "❓ <b>How to use</b>",
+    `Tap <b>${KEYBOARD_MENU}</b> below (or send /menu) and pick a report. Or type a command:`,
+    "",
+    ...lines,
+    "",
+    "📋 /status — last run of each report",
+    "",
+    "⏰ <b>Automatic runs (IST)</b>",
+    ...auto,
+  ].join("\n");
 }
 
 function allowedChat(env, chatId) {
@@ -121,11 +195,11 @@ export default {
     }
     const update = await request.json().catch(() => null);
 
-    // A tap on a /menu button
+    // A tap on a menu button
     const cb = update?.callback_query;
     if (cb?.message) {
       if (!allowedChat(env, cb.message.chat.id)) {
-        console.log(`ignored menu tap ${cb.data} from chat ${cb.message.chat.id} user ${cb.from?.id}`);
+        console.log(`ignored button ${cb.data} from chat ${cb.message.chat.id} user ${cb.from?.id}`);
         return new Response("ok");
       }
       ctx.waitUntil(handleTap(env, cb));
@@ -133,14 +207,16 @@ export default {
     }
 
     const msg = update?.message;
-    const text = msg?.text?.trim();
+    let text = msg?.text?.trim();
+    if (text === KEYBOARD_MENU) text = "/menu";
+    if (text === KEYBOARD_STATUS) text = "/status";
     if (!text || !text.startsWith("/")) return new Response("ok");
     if (!allowedChat(env, msg.chat.id)) {
       console.log(`ignored ${text} from chat ${msg.chat.id} (${msg.chat.type} ${msg.chat.title || ""}) user ${msg.from?.id} ${msg.from?.first_name || ""}`);
       return new Response("ok");
     }
     // Reply after the 200 so Telegram never retries a slow GitHub call.
-    ctx.waitUntil(handle(env, msg.chat.id, msg.message_id, text));
+    ctx.waitUntil(handle(env, msg.chat.id, msg.message_id, text, msg.from?.first_name));
     return new Response("ok");
   },
 
@@ -162,7 +238,7 @@ export default {
           } catch (e) {
             console.log(`cron ${s.cmd} failed: ${e.stack || e}`);
             const chat = String(env.ALLOWED_CHAT_IDS || "").split(",")[0].trim();
-            if (chat) await sendMessage(env, chat, `❌ ${cmd.label} (auto ${s.ist}) could not start: ${e.message}`);
+            if (chat) await sendMessage(env, chat, `❌ <b>${cmd.label}</b> (auto ${s.ist}) could not start: ${esc(e.message)}`);
           }
         })
       )
@@ -177,36 +253,64 @@ function dispatch(env, cmd, inputs) {
   });
 }
 
+function keyboard(rows) {
+  return { inline_keyboard: rows.map((row) => row.map(([text, data]) => ({ text, callback_data: data }))) };
+}
+
 async function handleTap(env, cb) {
   const chatId = cb.message.chat.id;
+  const messageId = cb.message.message_id;
   const data = String(cb.data || "");
-  await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id });
-  if (data === "cancel") {
-    return telegram(env, "editMessageText", { chat_id: chatId, message_id: cb.message.message_id, text: "Cancelled." });
+  const show = (text, rows) =>
+    telegram(env, "editMessageText", { chat_id: chatId, message_id: messageId, text, parse_mode: "HTML",
+                                       disable_web_page_preview: true, reply_markup: keyboard(rows) });
+
+  if (data.startsWith("m:")) {
+    await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id });
+    const screen = SCREENS[data.slice(2)] || SCREENS.main;
+    return show(screen.title, screen.rows);
   }
-  if (data === "confirm ajiospf") {
-    return sendMessage(env, chatId, "⚠️ AJIO SPF LIVE raises tickets and posts replies on AJIO. Start it?", undefined, {
-      inline_keyboard: [[{ text: "✅ Yes, run LIVE", callback_data: "ajiospf" }, { text: "✖️ Cancel", callback_data: "cancel" }]],
-    });
+  if (data === "st") {
+    await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id, text: "Checking GitHub…" });
+    return show(await statusText(env), [[["🔄 Refresh", "st"], BACK[0]]]);
   }
-  return handle(env, chatId, cb.message.message_id, `/${data}`, cb.from?.first_name);
+  if (data === "hp") {
+    await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id });
+    return show(helpText(), [BACK]);
+  }
+  if (data.startsWith("c:")) {
+    await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id });
+    return show("⚠️ <b>AJIO SPF LIVE</b>\nThis raises SPF tickets and posts replies on AJIO.\nStart it?",
+                [[["✅ Yes, run LIVE", `r:${data.slice(2)}`], ["✖️ Cancel", "m:spf"]]]);
+  }
+  if (data.startsWith("r:")) {
+    await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id, text: "Starting…" });
+    await show(SCREENS.main.title, SCREENS.main.rows);   // menu stays ready for the next tap
+    return handle(env, chatId, undefined, `/${data.slice(2)}`, cb.from?.first_name);
+  }
+  return telegram(env, "answerCallbackQuery", { callback_query_id: cb.id });
 }
 
 async function handle(env, chatId, replyTo, text, who) {
-  const [head, ...args] = text.split(/\s+/);
+  const [head, ...rawArgs] = text.split(/\s+/);
   const name = head.slice(1).split("@")[0].toLowerCase();
   const reply = (t, markup) => sendMessage(env, chatId, t, replyTo, markup);
 
   try {
-    if (name === "start" || name === "help") return await reply(helpText());
-    if (name === "menu") return await reply("Choose a report:", menuMarkup());
-    if (name === "status") return await reply(await statusText(env));
+    if (name === "start") {
+      await reply("👋 <b>Bindal Exports reports</b>\nUse the buttons below the chat box any time.", REPLY_KEYBOARD);
+      return await reply(SCREENS.main.title, keyboard(SCREENS.main.rows));
+    }
+    if (name === "help") return await reply(helpText());
+    if (name === "menu") return await reply(SCREENS.main.title, keyboard(SCREENS.main.rows));
+    if (name === "status") return await reply(await statusText(env), keyboard([[["🔄 Refresh", "st"], ["📋 Menu", "m:main"]]]));
 
     const cmd = COMMANDS[name];
-    if (!cmd) return await reply(`Unknown command /${name}\n\n${helpText()}`);
+    if (!cmd) return await reply(`🤔 Unknown command <code>/${esc(name)}</code>\nTap <b>${KEYBOARD_MENU}</b> or send /help.`);
 
+    const args = expandPeriod(name, rawArgs);
     const inputs = cmd.inputs(args);
-    if (typeof inputs === "string") return await reply(`${inputs}\nUsage: ${cmd.usage}`);
+    if (typeof inputs === "string") return await reply(`⚠️ ${esc(inputs)}\nUsage: <code>${esc(cmd.usage)}</code>`);
 
     // Measured before dispatching, so the new run is not counted as "already running".
     const eta = await estimate(env, cmd, inputs);
@@ -214,23 +318,28 @@ async function handle(env, chatId, replyTo, text, who) {
     const res = await dispatch(env, cmd, { ...inputs, chat_id: String(chatId) });
     console.log(`dispatch ${cmd.workflow} ${JSON.stringify(inputs)} -> ${res.status}`);
     if (res.status !== 204) {
-      return await reply(`❌ ${cmd.label}: GitHub said ${res.status}\n${(await res.text()).slice(0, 300)}`);
+      return await reply(`❌ <b>${cmd.label}</b>: GitHub said ${res.status}\n<code>${esc((await res.text()).slice(0, 300))}</code>`);
     }
     const what = describe(name, inputs);
-    await reply(`⏳ ${cmd.label}${what ? ` (${what})` : ""} started${who ? ` by ${who}` : ""}\n${eta}\nThe report comes here when it is done.`);
+    await reply([
+      `⏳ <b>${cmd.label}</b> started${who ? ` by ${esc(who)}` : ""}`,
+      what ? `📅 ${esc(what)}` : "",
+      eta,
+      "<i>The report comes here when it is done.</i>",
+    ].filter(Boolean).join("\n"));
   } catch (e) {
     console.log(`handle /${name} failed: ${e.stack || e}`);
-    await reply(`❌ Error: ${e.message}`);
+    await reply(`❌ Error: ${esc(e.message)}`);
   }
 }
 
 function describe(name, inputs) {
   if (inputs.today) return "today so far";
   if (inputs.snapshot) return inputs.snapshot === "current" ? "this month" : inputs.snapshot;
-  if (inputs.dry_run) return "dry run, nothing posted";
-  if (name === "ajiospf") return "LIVE";
+  if (inputs.dry_run) return "dry run — nothing posted";
+  if (name === "ajiospf") return "LIVE — posts on AJIO";
   if (inputs.days) return `today + ${inputs.days} previous days`;
-  if (inputs.from) return `${inputs.from} to ${inputs.to || (name === "sale" ? "yesterday" : "today")}`;
+  if (inputs.from) return `${inputs.from} → ${inputs.to || (name === "sale" ? "yesterday" : "today")}`;
   return "";
 }
 
@@ -251,53 +360,55 @@ async function estimate(env, cmd, inputs) {
         .sort((a, b) => a - b);
       if (!cmd.picture && done.length >= 3) {
         minutes = done[Math.floor(done.length / 2)];
-        basis = `median of the last ${done.length} runs`;
+        basis = `median of last ${done.length} runs`;
       }
       const busy = runs.filter((r) => r.status !== "completed");
       if (busy.length) {
         const ranFor = (Date.now() - Date.parse(busy[0].created_at)) / 60000;
         const left = Math.max(1, Math.ceil(minutes - ranFor));
         minutes += left;
-        waiting = `\n${busy.length} run already in progress — this one starts after it (~${left} min).`;
+        waiting = `\n🚦 ${busy.length} run already in progress — this one starts after it (~${left} min)`;
       }
     }
   } catch (e) {
     console.log(`estimate ${cmd.workflow} failed: ${e}`);
   }
-  if (inputs.from && inputs.to) basis += "; a back-fill of several days takes longer";
+  if (inputs.from && inputs.to && inputs.from !== inputs.to) basis += "; several days take longer";
   const finish = new Date(Date.now() + minutes * 60000).toLocaleTimeString("en-IN", {
     timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit",
   });
-  return `Expected: ~${fmt(minutes)} (${basis}), ready around ${finish}${waiting}`;
+  return `⏱ ~${fmt(minutes)} · ready around <b>${finish}</b> <i>(${basis})</i>${waiting}`;
 }
 
 function fmt(minutes) {
   return minutes < 1.5 ? "1 min" : `${Math.round(minutes)} min`;
 }
 
-function menuMarkup() {
-  return { inline_keyboard: MENU.map((row) => row.map(([text, data]) => ({ text, callback_data: data }))) };
-}
-
 async function statusText(env) {
   const rows = await Promise.all(
     Object.entries(COMMANDS).filter(([, c]) => !c.picture).map(async ([name, c]) => {
       const auto = SCHEDULE.filter((s) => s.cmd === name).map((s) => s.ist).join(", ");
+      const autoLine = auto ? `\n    ⏰ auto ${auto}` : "";
       const res = await github(env, `/repos/${OWNER}/${REPO}/actions/workflows/${c.workflow}/runs?per_page=1`);
-      if (!res.ok) return `• ${c.label}: GitHub ${res.status}`;
+      if (!res.ok) return `${c.icon} <b>${c.label}</b>\n    ⚠️ GitHub ${res.status}`;
       const run = (await res.json()).workflow_runs?.[0];
-      if (!run) return `• ${c.label}: no runs yet${auto ? `\n   auto: ${auto}` : ""}`;
+      if (!run) return `${c.icon} <b>${c.label}</b>\n    no runs yet${autoLine}`;
       const when = new Date(run.created_at).toLocaleString("en-IN", {
         timeZone: "Asia/Kolkata", day: "2-digit", month: "short", hour: "numeric", minute: "2-digit",
       });
       const took = ((run.status === "completed" ? Date.parse(run.updated_at) : Date.now()) - Date.parse(run.created_at)) / 60000;
-      const state = run.status === "completed"
-        ? `${run.conclusion === "success" ? "✅" : "❌"} ${run.conclusion}, took ${fmt(took)}`
-        : `⏳ ${run.status} for ${fmt(took)}`;
-      return `• ${c.label}: ${state} — ${when}${auto ? `\n   auto: ${auto}` : ""}`;
+      const state = run.status !== "completed"
+        ? `⏳ running for ${fmt(took)}`
+        : run.conclusion === "success" ? `✅ done in ${fmt(took)}` : `❌ ${run.conclusion}`;
+      return `${c.icon} <b>${c.label}</b>\n    ${state} · ${when}${autoLine}`;
     })
   );
-  return rows.join("\n");
+  const now = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" });
+  return [`📋 <b>Status</b> <i>(as of ${now})</i>`, "", rows.join("\n\n")].join("\n");
+}
+
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function github(env, path, init = {}) {
@@ -326,6 +437,7 @@ function sendMessage(env, chatId, text, replyTo, markup) {
   return telegram(env, "sendMessage", {
     chat_id: chatId,
     text,
+    parse_mode: "HTML",
     ...(replyTo ? { reply_parameters: { message_id: replyTo, allow_sending_without_reply: true } } : {}),
     disable_web_page_preview: true,
     ...(markup ? { reply_markup: markup } : {}),
