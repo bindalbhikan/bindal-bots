@@ -1,0 +1,75 @@
+name: Daily sale report
+
+on:
+  # The daily run (3:30 PM IST) is started by the Telegram bot's Cloudflare cron
+  # (worker/src/worker.js); GitHub's own schedule skipped runs.
+  workflow_dispatch:
+    inputs:
+      from:
+        description: "Back-fill: first day (YYYY-MM-DD), empty = normal daily run"
+        default: ""
+      to:
+        description: "Back-fill: last day (YYYY-MM-DD), empty = yesterday"
+        default: ""
+      today:
+        description: "1 = today so far, channel-wise, Telegram only (workbook not touched)"
+        default: ""
+      snapshot:
+        description: "Picture of a month sheet instead of the report (current or YYYY-MM)"
+        default: ""
+      chat_id:
+        description: "Telegram chat for this run's report (empty = default chat)"
+        default: ""
+
+concurrency:
+  group: sale
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      OMSGURU_EMAIL: ${{ secrets.OMSGURU_EMAIL }}
+      OMSGURU_PASSWORD: ${{ secrets.OMSGURU_PASSWORD }}
+      OMSGURU_OTP: ${{ secrets.OMSGURU_OTP }}
+      FLIPKART_EMAIL: ${{ secrets.FLIPKART_EMAIL }}
+      FLIPKART_PASSWORD: ${{ secrets.FLIPKART_PASSWORD }}
+      SJIT_DRIVE_FOLDER_ID: ${{ secrets.SJIT_DRIVE_FOLDER_ID }}
+      SALE_DRIVE_FILE_ID: ${{ secrets.SALE_DRIVE_FILE_ID }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
+      FBF_LOCATIONS: ${{ vars.FBF_LOCATIONS }}
+      SALE_REPORT_DAYS: ${{ vars.SALE_REPORT_DAYS }}
+      # inputs reach the shell only as variables, never pasted into the script
+      IN_FROM: ${{ inputs.from }}
+      IN_TO: ${{ inputs.to }}
+      IN_TODAY: ${{ inputs.today }}
+      IN_SNAPSHOT: ${{ inputs.snapshot }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          libreoffice: ${{ inputs.snapshot != '' }}
+      - name: Run report
+        run: |
+          if [ -n "$IN_SNAPSHOT" ]; then
+            python run.py sale --snapshot "$IN_SNAPSHOT"
+          elif [ -n "$IN_TODAY" ]; then
+            python run.py sale --today
+          elif [ -n "$IN_FROM" ]; then
+            python run.py sale --from "$IN_FROM" ${IN_TO:+--to "$IN_TO"}
+          else
+            python run.py sale
+          fi
+      - name: Upload run output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sale-${{ github.run_id }}
+          path: output/
+          if-no-files-found: ignore
+          retention-days: 14

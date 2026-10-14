@@ -1,0 +1,19 @@
+name: Set up the bots
+description: Python 3.12 with the project's requirements, plus LibreOffice when a sheet picture is wanted
+inputs:
+  libreoffice:
+    description: "true = install LibreOffice + poppler for --snapshot"
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: pip
+    - run: pip install -r requirements.txt
+      shell: bash
+    - if: inputs.libreoffice == 'true'
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends libreoffice-calc poppler-utils fonts-crosextra-carlito
+      shell: bash

@@ -1,0 +1,15 @@
+name = "bindal-telegram-bot"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+# Daily auto runs (UTC; IST = UTC + 5:30). Which report runs at which time: SCHEDULE in src/worker.js.
+#   0 6 * * WED,SAT -> 11:30 AM IST Wednesday + Saturday  ajiospf
+#   0 10 * * *  ->  3:30 PM IST  sale
+#   0 12 * * *  ->  5:30 PM IST  vms, ajiotat
+[triggers]
+crons = ["0 6 * * WED,SAT", "0 10 * * *", "0 12 * * *"]
+
+[vars]
+# Extra Telegram users allowed to send commands (comma-separated chat ids, from DMs with the bot).
+EXTRA_CHAT_IDS = "632091833"  # Vipul

@@ -1,0 +1,58 @@
+name: AJIO SPF run
+
+on:
+  # The auto run (11:30 AM IST, Wednesday + Saturday) is started by the Telegram bot's
+  # Cloudflare cron (worker/src/worker.js).
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "1 = only report what would be raised / replied, 0 = post to AJIO (empty = repo variable SPF_DRY_RUN, else 1)"
+        default: ""
+      chat_id:
+        description: "Telegram chat for this run's report (empty = default chat)"
+        default: ""
+
+concurrency:
+  group: ajio-spf
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      SPF_DRY_RUN: ${{ inputs.dry_run || vars.SPF_DRY_RUN || '1' }}
+      AJIO_USERNAME: ${{ secrets.AJIO_USERNAME }}
+      AJIO_PASSWORD: ${{ secrets.AJIO_PASSWORD }}
+      SRM_USERNAME: ${{ secrets.SRM_USERNAME }}
+      SRM_PASSWORD: ${{ secrets.SRM_PASSWORD }}
+      ERP_USERNAME: ${{ secrets.ERP_USERNAME }}
+      ERP_PASSWORD: ${{ secrets.ERP_PASSWORD }}
+      ERP_USER_TOKEN: ${{ secrets.ERP_USER_TOKEN }}
+      OMSGURU_EMAIL: ${{ secrets.OMSGURU_EMAIL }}
+      OMSGURU_PASSWORD: ${{ secrets.OMSGURU_PASSWORD }}
+      OMSGURU_OTP: ${{ secrets.OMSGURU_OTP }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      SHADOWFAX_TOKEN: ${{ secrets.SHADOWFAX_TOKEN }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      SPF_MASTER_DRIVE_FILE_ID: ${{ secrets.SPF_MASTER_DRIVE_FILE_ID }}
+      SPF_MANUAL_DRIVE_FILE_ID: ${{ secrets.SPF_MANUAL_DRIVE_FILE_ID }}
+      SPF_OMS_DRIVE_FILE_ID: ${{ secrets.SPF_OMS_DRIVE_FILE_ID }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: python run.py ajio-spf
+      - name: Upload run output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajio-spf-${{ github.run_id }}
+          path: |
+            output/ajio_spf/*.xlsx
+            output/ajio_spf/*.log
+          if-no-files-found: ignore
+          retention-days: 14

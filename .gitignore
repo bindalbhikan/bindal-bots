@@ -1,0 +1,18 @@
+# secrets
+.env
+service_account.json
+*.json.key
+# run output and business data (data stays on Google Drive, never in git)
+output/
+data/
+sjit/
+*.xlsx
+*.csv
+# python / tools
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+worker/.wrangler/
+worker/node_modules/

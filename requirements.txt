@@ -1,0 +1,16 @@
+# Every bot in one environment (Python 3.12)
+pandas>=2.2
+openpyxl>=3.1
+requests>=2.31
+beautifulsoup4>=4.12
+python-dotenv>=1.0
+google-auth>=2.23
+gspread>=6.0
+cryptography>=42
+curl_cffi>=0.7
+selectolax>=0.3.21
+pypdfium2>=4.30
+zxing-cpp>=2.2
+# pypdfium2 renders shipping labels to PIL images: without Pillow every
+# Shadowfax / Delhivery label fails and those Myntra orders show as NO VMS
+pillow>=10.0

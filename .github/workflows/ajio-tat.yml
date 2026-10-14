@@ -1,0 +1,47 @@
+name: AJIO TAT daily update
+
+on:
+  # The daily run (5:30 PM IST) is started by the Telegram bot's Cloudflare cron (worker/src/worker.js).
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "OMSGuru window: today plus N previous days (1 = yesterday + today)"
+        default: ""
+      chat_id:
+        description: "Telegram chat for this run's report (empty = default chat)"
+        default: ""
+
+concurrency:
+  group: ajio-tat
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      OMSGURU_EMAIL: ${{ secrets.OMSGURU_EMAIL }}
+      OMSGURU_PASSWORD: ${{ secrets.OMSGURU_PASSWORD }}
+      OMSGURU_OTP: ${{ secrets.OMSGURU_OTP }}
+      TAT_DRIVE_FILE_ID: ${{ secrets.TAT_DRIVE_FILE_ID }}
+      TAT_GOOGLE_SHEET_ID: ${{ secrets.TAT_GOOGLE_SHEET_ID }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
+      SHADOWFAX_TOKEN: ${{ secrets.SHADOWFAX_TOKEN }}
+      AJIO_CHANNEL_IDS: ${{ vars.AJIO_CHANNEL_IDS }}
+      TAT_LOOKBACK_DAYS: ${{ inputs.days || vars.TAT_LOOKBACK_DAYS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: python run.py ajio-tat
+      - name: Upload run output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajio-tat-${{ github.run_id }}
+          path: output/
+          if-no-files-found: ignore
+          retention-days: 14

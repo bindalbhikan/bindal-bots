@@ -1,0 +1,11 @@
+{
+  "impersonate": "chrome",
+  "timeout": 30,
+  "retries": 3,
+  "proxy": null,
+  "couriers": {
+    "SHADOWFAX": {
+      "token": ""
+    }
+  }
+}
