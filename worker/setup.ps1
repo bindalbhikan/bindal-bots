@@ -16,8 +16,16 @@ function Read-EnvValue($file, $key) {
 }
 
 function Put-Secret($name, $value) {
-    $value | npx.cmd --yes wrangler secret put $name | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "wrangler secret put $name failed" }
+    # Through a JSON file, not a pipe: PowerShell adds a line ending to piped text, and the
+    # stored secret would then never match (a webhook secret ending in "" makes every update 403).
+    $file = Join-Path $env:TEMP "bindal-secret.json"
+    [IO.File]::WriteAllText($file, (@{ $name = $value } | ConvertTo-Json -Compress))
+    try {
+        npx.cmd --yes wrangler secret bulk $file | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "wrangler secret put $name failed" }
+    } finally {
+        Remove-Item $file -Force -ErrorAction SilentlyContinue
+    }
     Write-Host "  secret $name saved"
 }
 
