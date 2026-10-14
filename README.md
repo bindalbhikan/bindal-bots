@@ -45,7 +45,7 @@ bindal/
 worker/                    Cloudflare Worker: Telegram commands + the daily cron
 .github/workflows/         one workflow per bot (workflow_dispatch) + tests
 tests/                     python -m pytest
-scripts/                   local runs, Windows task, .env migration
+scripts/                   local runs
 ```
 
 ## How it runs
@@ -62,8 +62,7 @@ scripts/                   local runs, Windows task, .env migration
 
 ## Settings
 
-One `.env` for everything (copy `.env.example`; `python scripts/merge_env.py` builds it from the
-old per-bot `.env` files). On GitHub the same names are repository **Secrets** (logins, ids) and
+One `.env` for everything (copy `.env.example`). On GitHub the same names are repository **Secrets** (logins, ids) and
 **Variables** (tuning). Names that two bots used to share with different meanings now carry a
 prefix:
 
