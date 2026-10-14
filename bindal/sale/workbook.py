@@ -9,6 +9,7 @@ original main.py.
 from __future__ import annotations
 
 import calendar
+import copy
 from collections import defaultdict
 from datetime import date, datetime
 
@@ -16,7 +17,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 
 BLOCK_ALIASES = {
-    "AZ/FX/FBA": "AZ/FX/FBA", "AMAZON/FLEX/FBA": "AZ/FX/FBA", "AMAZON": "AZ/FX/FBA",
+    "AZ/FX/FBA": "AZ/FX/FBA", "AMAZON/FLEX/FBA": "AZ/FX/FBA", "AMAZON": "AZ/FX/FBA", "COCOBLU": "COCOBLU",
     "MEESHO": "MEESHO", "AJIO B2C": "AJIO B2C", "AJIO": "AJIO B2C", "FLIPKART": "FLIPKART",
     "FBF": "FBF", "MYNTRA": "MYNTRA", "SJIT": "SJIT", "NYKAA": "NYKAA", "SNAPDEAL": "SNAPDEAL",
     "TOTAL": "TOTAL",
@@ -152,6 +153,72 @@ class SaleWorkbook:
             return False
         cell.value = int(value)
         return True
+
+    def has_block(self, day: date, block: str) -> bool:
+        layout, _, _ = self.layout(self.month_sheet(day.year, day.month))
+        return block in layout
+
+    def move_blocks(self, ws, new_block: str, after: str, remove: str) -> None:
+        """Rebuild a month sheet's columns: drop the `remove` block and add an empty `new_block`
+        (GROSS / RETURN / Cancel / NET, styled like `after`) right after `after`. Values,
+        styles, widths and merged headers move with their columns; formulas are rewritten."""
+        layout, _, _ = self.layout(ws)
+        if new_block in layout:
+            return
+        if after not in layout:
+            raise RuntimeError(f"Sheet {ws.title} has no {after} block")
+        ins = max(layout[after].values()) + 1                    # first column of the new block
+        width = 4
+        gone = sorted(layout[remove].values()) if remove in layout else []
+        gone = list(range(gone[0], gone[-1] + 1)) if gone else []
+        if gone and gone[0] < ins:
+            raise RuntimeError(f"{remove} must sit right of {after}")
+        max_col, max_row = ws.max_column, ws.max_row
+
+        def new_col(c):                                          # old column -> new column (None = dropped)
+            if c in gone:
+                return None
+            if c < ins:
+                return c
+            if gone and c > gone[-1]:
+                return c + width - len(gone)
+            return c + width
+
+        cells = {(r, c): (ws.cell(r, c).value, copy.copy(ws.cell(r, c)._style))
+                 for r in range(1, max_row + 1) for c in range(1, max_col + 1)}
+        widths = {c: ws.column_dimensions[get_column_letter(c)].width for c in range(1, max_col + 1)}
+        merges = [(m.min_row, m.min_col, m.max_row, m.max_col) for m in ws.merged_cells.ranges]
+        for m in list(ws.merged_cells.ranges):
+            ws.unmerge_cells(str(m))
+        last = max(c for c in (new_col(c) for c in range(1, max_col + 1)) if c)
+        for r in range(1, max_row + 1):
+            for c in range(1, max(max_col, last) + 1):
+                ws.cell(r, c).value = None
+        for (r, c), (value, style) in cells.items():
+            nc = new_col(c)
+            if nc:
+                cell = ws.cell(r, nc)
+                cell.value, cell._style = value, style
+        src = sorted(layout[after].values())                     # the new block copies `after`'s look
+        for k in range(width):
+            for r in range(1, max_row + 1):
+                ws.cell(r, ins + k)._style = copy.copy(cells[(r, src[min(k, len(src) - 1)])][1])
+            ws.column_dimensions[get_column_letter(ins + k)].width = widths.get(src[min(k, len(src) - 1)])
+        for c, w in widths.items():
+            nc = new_col(c)
+            if nc and w:
+                ws.column_dimensions[get_column_letter(nc)].width = w
+        for r0, c0, r1, c1 in merges:
+            a, b = new_col(c0), new_col(c1)
+            if r0 == 1 and r1 == 1 and c0 == 1:                  # the title row keeps its full width
+                b = b or c1
+            if a and b:
+                ws.merge_cells(start_row=r0, start_column=a, end_row=r1, end_column=b)
+        ws.cell(2, ins).value = new_block
+        ws.merge_cells(start_row=2, start_column=ins, end_row=2, end_column=ins + width - 1)
+        for k, metric in enumerate(("GROSS", "RETURN", "Cancel", "NET")):
+            ws.cell(3, ins + k).value = metric
+        self.repair_formulas(ws)
 
     def read(self, day: date, block: str, metric: str) -> int:
         ws = self.month_sheet(day.year, day.month)

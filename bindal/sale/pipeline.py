@@ -27,9 +27,9 @@ from .oms_sales import OMS_BLOCKS, gross_by_day
 from .workbook import SaleWorkbook
 
 BOOK_NAME = "SALE REPORT.xlsx"
-REPORT_ORDER = ["AZ/FX/FBA", "MEESHO", "AJIO B2C", "FLIPKART", "FBF", "MYNTRA", "SJIT", "NYKAA", "SNAPDEAL"]
+REPORT_ORDER = ["AZ/FX/FBA", "COCOBLU", "MEESHO", "AJIO B2C", "FLIPKART", "FBF", "MYNTRA", "SJIT", "NYKAA"]
 TODAY_ORDER = [b for b in REPORT_ORDER if b != "SJIT"]  # SJIT comes from a hand-dropped report
-SHORT = {"AZ/FX/FBA": "Amazon", "AJIO B2C": "Ajio", "FBF": "FBF", "SJIT": "SJIT"}
+SHORT = {"AZ/FX/FBA": "Amazon", "COCOBLU": "Cocoblu", "AJIO B2C": "Ajio", "FBF": "FBF", "SJIT": "SJIT"}
 log = logging.getLogger("bindal.sale")
 
 
@@ -216,8 +216,11 @@ def run(args) -> int:
     if not sum(gross.values()):
         raise RuntimeError(f"OMSGuru returned no orders for {days[0]} - {days[-1]}; workbook left unchanged")
     for d in days:
-        for block in OMS_BLOCKS:
-            book.write(d, block, "GROSS", gross[(d, block)])
+        values = {block: gross[(d, block)] for block in OMS_BLOCKS}
+        if not book.has_block(d, "COCOBLU"):        # sheets from before Oct 2026: Cocoblu sat inside Amazon
+            values["AZ/FX/FBA"] += values.pop("COCOBLU", 0)
+        for block, value in values.items():
+            book.write(d, block, "GROSS", value)
     log.info("OMS GROSS written: %s", {f"{d}": {b: gross[(d, b)] for b in OMS_BLOCKS} for d in days})
     if unmapped:
         notes.append("unmapped OMS channels: " + ", ".join(f"{k} {v}" for k, v in unmapped.items()))

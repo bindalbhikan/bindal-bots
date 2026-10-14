@@ -29,6 +29,13 @@ from the ERP packing report (DigiBizz report 62, portal MYNTRA: its Order ID is 
 tracking number), channels from OMSGuru. `/vms erp` (or VMS → 🏭 ERP vs VMS in the menu)
 runs only this part. If the ERP part fails, the VMS report still goes out with a note.
 
+### Sale: blocks
+
+Since Oct 2026 the month sheets have a COCOBLU block right after AZ/FX/FBA (OMSGuru channel
+"BINDAL EXPORTS LIMITED - COCOBLU", earlier counted inside Amazon) and no SNAPDEAL block
+(Snapdeal orders are not reported). Older month sheets keep their old layout; a run that
+writes into one puts Cocoblu back inside AZ/FX/FBA. New months copy the latest sheet.
+
 ## How it runs
 
 - **GitHub Actions** in `bindal-bots`, one `workflow_dispatch` workflow per bot

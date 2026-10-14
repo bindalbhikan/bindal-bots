@@ -20,16 +20,19 @@ from ..core.omsguru import BASE_URL, OmsGuruClient, text_of
 log = logging.getLogger(__name__)
 
 # The first matching keyword decides the destination block of the sale report.
+# Cocoblu (an Amazon seller channel) has its own block since Oct 2026; Snapdeal is not reported.
+IGNORE = "-"
 CHANNEL_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
-    (("amazon", "cocoblu"), "AZ/FX/FBA"),
+    (("cocoblu",), "COCOBLU"),
+    (("amazon",), "AZ/FX/FBA"),
     (("meesho",), "MEESHO"),
     (("ajio",), "AJIO B2C"),
     (("flipkart",), "FLIPKART"),
     (("myntra",), "MYNTRA"),
     (("nykaa",), "NYKAA"),
-    (("snapdeal",), "SNAPDEAL"),
+    (("snapdeal",), IGNORE),
 )
-OMS_BLOCKS = sorted({block for _, block in CHANNEL_RULES})
+OMS_BLOCKS = sorted({block for _, block in CHANNEL_RULES} - {IGNORE})
 ORDER_DATE_RE = re.compile(r"Order Date\s+(\d{2}/\w{3}/\d{4} \d{2}:\d{2} [AP]M)")
 
 
@@ -88,6 +91,8 @@ def gross_by_day(client: OmsGuruClient, days: list[date], max_pages: int = 80):
                 qty = sum(int(q) for q in re.findall(r"Qty\s+(\d+)", text_of(tds[3]))) or 1
                 name = names.get(chid, chid or "(blank)")
                 block = block_for(name)
+                if block == IGNORE:
+                    continue
                 if block:
                     gross[(day, block)] += qty
                 else:
