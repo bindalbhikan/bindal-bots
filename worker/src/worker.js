@@ -30,9 +30,9 @@ const COMMANDS = {
     workflow: "vms.yml",
     icon: "📹",
     name: "Myntra VMS",
-    examples: ["/vms", "/vms 2026-10-01 2026-10-07"],
+    examples: ["/vms", "/vms 2026-10-01 2026-10-07", "/vms erp"],
     minutes: 2,
-    inputs: dateRange,
+    inputs: (args) => (args.length === 1 && args[0].toLowerCase() === "erp" ? { erp_only: "1" } : dateRange(args)),
   },
   ajiotat: {
     workflow: "ajio-tat.yml",
@@ -124,6 +124,7 @@ const SCREENS = {
     rows: [
       [["Today", "r:vms"], ["Last 7 days", "r:vms @week"]],
       [["This month", "r:vms @month"], ["🖼 Sheet photo", "r:vmspic"]],
+      [["🏭 ERP vs VMS", "r:vms erp"]],
       BACK,
     ],
   },
@@ -256,7 +257,7 @@ export default {
 };
 
 // The bots' latest numbers for the dashboard, stored in KV under their key.
-const DASH_KEYS = new Set(["sale", "sale_today", "vms", "ajio_tat", "ajio_spf",
+const DASH_KEYS = new Set(["sale", "sale_today", "vms", "vms_erp", "ajio_tat", "ajio_spf",
                            "run_sale", "run_vms", "run_ajio_tat", "run_ajio_spf"]);
 
 async function pushDashboard(request, env, key) {
@@ -393,6 +394,7 @@ async function handle(env, chatId, replyTo, text, who) {
 function describe(name, inputs) {
   const d = (s) => new Date(`${s}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
   if (inputs.today) return "Today so far";
+  if (inputs.erp_only) return "ERP vs VMS · 1st to today";
   if (inputs.snapshot) return inputs.snapshot === "current" ? "This month" : inputs.snapshot;
   if (inputs.dry_run) return "Dry run · nothing posted";
   if (name === "ajiospf") return "LIVE · posts on AJIO";

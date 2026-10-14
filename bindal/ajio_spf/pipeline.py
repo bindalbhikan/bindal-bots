@@ -83,7 +83,7 @@ def rtv_start(today: date) -> date:
 def fetch_all(today: date, ctx: dict) -> None:
     """Fill WORK/input with fresh exports. Any failure is recorded in ctx['errors']."""
     from .sources.ajio import AjioClient
-    from .sources.erp import Erp
+    from ..core.erp import Erp
     from .sources.srm import Srm, payment_rows
 
     inp = WORK / "input"

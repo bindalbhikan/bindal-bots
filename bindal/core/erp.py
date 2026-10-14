@@ -1,4 +1,6 @@
-"""DigiBizz ERP reports (GRN and dispatch), read through the report-preview API.
+"""DigiBizz ERP reports (GRN and dispatch / packing), read through the report-preview API.
+
+Used by the AJIO SPF bot (GRN + dispatch registers) and the Myntra VMS bot (packed AWBs).
 
 A report's SQL (sqlQueryData) names each output column "column_<a>_<b>" after
 the view field it comes from, e.g. ISNULL("VOUCHER_NO",'-') AS column_51_1702.
@@ -8,9 +10,10 @@ as long as the view fields stay.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import re
-from datetime import datetime
+from datetime import date, datetime
 
 import requests
 from cryptography.hazmat.primitives import padding
@@ -94,8 +97,17 @@ class Erp:
             raise ErpError(f"ERP report {report_id}: could not read its column list")
         return found
 
-    def report(self, report_id: int, headers: dict[str, str]) -> list[dict]:
-        """Every row of a report, keyed by the master's header names."""
+    @classmethod
+    def from_env(cls) -> "Erp":
+        from .config import env
+        client = cls(env("ERP_USERNAME"), env("ERP_PASSWORD"), env("ERP_USER_TOKEN"))
+        if not env("ERP_USERNAME") or not env("ERP_PASSWORD"):
+            raise ErpError("ERP_USERNAME / ERP_PASSWORD not set")
+        return client
+
+    def report(self, report_id: int, headers: dict[str, str], where: list | None = None) -> list[dict]:
+        """Every row of a report, keyed by the master's header names.
+        where: [(view field, operator, value), ...] all of which must hold (server-side filter)."""
         alias = self._fields(report_id)
         missing = [f for f in headers if f not in alias.values()]
         if missing:
@@ -104,6 +116,11 @@ class Erp:
         while total is None or skip < total:
             p = {"reportId": report_id, "userId": self.user_id, "runtimeParamJSON": "[]",
                  "skip": skip, "take": PAGE, "requireTotalCount": "true"}
+            if where:
+                column = {f: c for c, f in alias.items()}
+                parts = [[column[f], op, v] for f, op, v in where]
+                p["filter"] = json.dumps(parts[0] if len(parts) == 1 else
+                                         [x for part in parts for x in ("and", part)][1:])
             v = self.s.get(f"{API}/TblRptReports/GetReportPreviewDataSource", params=p, timeout=self.timeout).json()
             total = v.get("totalCount") or 0
             data = v.get("data") or []
@@ -127,3 +144,10 @@ class Erp:
 
     def dispatch(self) -> list[dict]:
         return self.report(DISPATCH_REPORT, DISPATCH_HEADERS)
+
+    def packed(self, portal: str, since: date) -> list[dict]:
+        """Packing-report lines of one portal (e.g. MYNTRA) from `since`. For Myntra the
+        "Order ID" is the Myntra tracking number (MYSP..., MYSC...)."""
+        return self.report(DISPATCH_REPORT, DISPATCH_HEADERS,
+                           where=[("TRANS_DATE", ">=", f"{since:%Y-%m-%d}T00:00:00"),
+                                  ("ORDER_PORTAL_NAME", "=", portal.upper())])

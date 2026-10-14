@@ -143,6 +143,40 @@ def run_snapshot(args) -> int:
 
 # ------------------------------------------------------------------ main
 
+def erp_text(e: dict) -> str:
+    """ERP vs VMS for Telegram: 24 characters wide, fits a phone."""
+    lines = [f"{'Code':<5} {'Pack':>5} {'VMS':>5} {'%':>6}"]
+    to = tv = 0
+    for c in e["codes"]:
+        o, v = e["total"][c]
+        if c == "OTHER" and not o:
+            continue
+        to, tv = to + o, tv + v
+        lines.append(f"{c:<5} {o:>5} {v:>5} {(v / o * 100 if o else 0):>5.1f}%")
+    lines.append(f"{'Total':<5} {to:>5} {tv:>5} {(tv / to * 100 if to else 0):>5.1f}%")
+    out = [f"🏭 <b>ERP vs VMS · {e['from']:%d %b} - {e['to']:%d %b}</b>",
+           "<i>parcels packed in the ERP, with a VMS video</i>",
+           "<pre>" + telegram.esc("\n".join(lines)) + "</pre>"]
+    notes = []
+    if e["missing"]:
+        notes.append(f"{len(e['missing'])} packed parcels have no VMS (sheet: ERP NO VMS)")
+    if e["unknown_channel"]:
+        notes.append(f"{e['unknown_channel']} parcels not found in OMSGuru (counted as OTHER)")
+    if notes:
+        out += ["", "⚠️ <b>Notes</b>", *(f"• {telegram.esc(n)}" for n in notes)]
+    return "\n".join(out)
+
+
+def run_erp(book) -> tuple[dict | None, str]:
+    """Month-to-date ERP vs VMS; a failure is reported, it never stops the VMS report."""
+    from . import erp_vms
+    try:
+        return erp_vms.run(book, date.today(), CODES, channels()), ""
+    except Exception as exc:  # noqa: BLE001
+        log.error("ERP vs VMS failed: %s", exc, exc_info=True)
+        return None, str(exc)
+
+
 def run(args) -> int:
     if args.snapshot:
         return run_snapshot(args)
@@ -150,20 +184,28 @@ def run(args) -> int:
     drive, book_path = open_book(args)
     book = VmsWorkbook(book_path)
 
-    df, new_pairs, errors = collect(dates, book.awb_cache())
-    if df.empty:
-        # Never overwrite the sheet with zeros: no Myntra order at all means a listing problem.
-        raise RuntimeError(f"No Myntra orders found for SLA {dates[0]} - {dates[-1]}; workbook left unchanged")
-    per_day = {d: day_counts(df, d) for d in dates}
-    if not args.only_no_vms:
-        for d, counts in per_day.items():
-            book.write_day(d, counts)
-            log.info("SLA %s: %s", d, counts)
-    missing = df[~df["In VMS"]].sort_values(["SLA Date", "Code", "Myntra AWB"])
-    book.write_no_vms(dates, [(t.date(), c, a) for t, c, a in
-                              zip(missing["SLA Date"], missing["Code"], missing["Myntra AWB"])])
-    log.info("NO VMS: %d orders on %d SLA date(s)", len(missing), len(dates))
-    book.save_awb_cache(new_pairs)
+    errors: list[str] = []
+    missing = None
+    per_day: dict = {}
+    if not args.erp_only:
+        df, new_pairs, errors = collect(dates, book.awb_cache())
+        if df.empty:
+            # Never overwrite the sheet with zeros: no Myntra order at all means a listing problem.
+            raise RuntimeError(f"No Myntra orders found for SLA {dates[0]} - {dates[-1]}; workbook left unchanged")
+        per_day = {d: day_counts(df, d) for d in dates}
+        if not args.only_no_vms:
+            for d, counts in per_day.items():
+                book.write_day(d, counts)
+                log.info("SLA %s: %s", d, counts)
+        missing = df[~df["In VMS"]].sort_values(["SLA Date", "Code", "Myntra AWB"])
+        book.write_no_vms(dates, [(t.date(), c, a) for t, c, a in
+                                  zip(missing["SLA Date"], missing["Code"], missing["Myntra AWB"])])
+        log.info("NO VMS: %d orders on %d SLA date(s)", len(missing), len(dates))
+        book.save_awb_cache(new_pairs)
+
+    erp, erp_error = (None, "") if args.no_erp else run_erp(book)
+    if args.erp_only and erp is None:
+        raise RuntimeError(f"ERP vs VMS failed: {erp_error}")
 
     replace_atomically(book.save, book_path)
     if drive:
@@ -175,24 +217,33 @@ def run(args) -> int:
     if errors:
         log.warning("%d label warnings, see %s", len(errors), errors_log)
 
-    month = VmsWorkbook(book_path).month_totals(dates[-1])
-    text = telegram_report({d: per_day[d] for d in dates[-2:]}, month, dates[-1])
-    if errors:
-        text += ("\n\n⚠️ <b>Notes</b>\n"
-                 f"• {len(errors)} shipping label(s) not readable: Myntra AWB unknown, counted as NO VMS")
-    if args.no_telegram:
-        print(text)
-    else:
-        telegram.send(text)
-    saved, last = VmsWorkbook(book_path), dates[-1]
-    prev = (last.replace(day=1) - timedelta(days=1))
-    dashboard.publish("vms", {
-        "day": last, "codes": CODES,
-        "days": saved.month_days(prev.year, prev.month) + saved.month_days(last.year, last.month),
-        "no_vms": [{"date": t.date(), "code": c, "awb": a} for t, c, a in
-                   zip(missing["SLA Date"], missing["Code"], missing["Myntra AWB"])][-400:],
-        "label_errors": len(errors),
-    })
+    parts = []
+    if not args.erp_only:
+        month = VmsWorkbook(book_path).month_totals(dates[-1])
+        text = telegram_report({d: per_day[d] for d in dates[-2:]}, month, dates[-1])
+        if errors:
+            text += ("\n\n⚠️ <b>Notes</b>\n"
+                     f"• {len(errors)} shipping label(s) not readable: Myntra AWB unknown, counted as NO VMS")
+        parts.append(text)
+    if erp is not None:
+        parts.append(erp_text(erp))
+    elif erp_error:
+        parts.append(f"🏭 <b>ERP vs VMS</b>\n\n⚠️ Not updated: <code>{telegram.esc(erp_error[:300])}</code>")
+    for text in parts:
+        print(text) if args.no_telegram else telegram.send(text)
+
+    if not args.erp_only:
+        saved, last = VmsWorkbook(book_path), dates[-1]
+        prev = (last.replace(day=1) - timedelta(days=1))
+        dashboard.publish("vms", {
+            "day": last, "codes": CODES,
+            "days": saved.month_days(prev.year, prev.month) + saved.month_days(last.year, last.month),
+            "no_vms": [{"date": t.date(), "code": c, "awb": a} for t, c, a in
+                       zip(missing["SLA Date"], missing["Code"], missing["Myntra AWB"])][-400:],
+            "label_errors": len(errors),
+        })
+    if erp is not None:
+        dashboard.publish("vms_erp", {**erp, "missing": erp["missing"][-600:], "missing_count": len(erp["missing"])})
     return 0
 
 
@@ -206,6 +257,9 @@ def main(argv=None) -> int:
                    help="refresh only the NO VMS sheet, leave the month-sheet counts untouched (for back-fills)")
     p.add_argument("--snapshot", nargs="?", const="current", metavar="YYYY-MM",
                    help="send a picture of a month sheet to Telegram (default: this month)")
+    p.add_argument("--erp-only", action="store_true",
+                   help="only the month-to-date ERP vs VMS sheets (parcels packed in the ERP vs VMS scans)")
+    p.add_argument("--no-erp", action="store_true", help="skip the ERP vs VMS part")
     p.add_argument("--no-drive", action="store_true", help="use the local workbook instead of the Drive file")
     p.add_argument("--no-telegram", action="store_true", help="do not send the Telegram message")
     return run_bot("Myntra VMS report", p, run, argv, key="vms")

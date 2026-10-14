@@ -20,6 +20,15 @@ separate folders / repos: `daily-sale-report`, `myntra-vms-report`, `ajio-tat-bo
 Each run downloads its workbook from Drive, updates it, and uploads it in place (same file id;
 Drive keeps the old versions). It refuses to upload when someone changed the file meanwhile.
 
+### VMS: ERP vs VMS
+
+The VMS run also rebuilds, from the 1st of the month to today, two sheets in the same
+workbook: `ERP VS VMS MON-YY` (per day and channel: parcels packed in the ERP, how many have
+a VMS scan, %) and `ERP NO VMS` (the AWBs without a scan, with who packed them). AWBs come
+from the ERP packing report (DigiBizz report 62, portal MYNTRA: its Order ID is the Myntra
+tracking number), channels from OMSGuru. `/vms erp` (or VMS → 🏭 ERP vs VMS in the menu)
+runs only this part. If the ERP part fails, the VMS report still goes out with a note.
+
 ## How it runs
 
 - **GitHub Actions** in `bindal-bots`, one `workflow_dispatch` workflow per bot

@@ -13,6 +13,9 @@ on:
       snapshot:
         description: "Picture of a month sheet instead of the report (current or YYYY-MM)"
         default: ""
+      erp_only:
+        description: "1 = only the month-to-date ERP vs VMS sheets"
+        default: ""
       chat_id:
         description: "Telegram chat for this run's report (empty = default chat)"
         default: ""
@@ -34,6 +37,9 @@ jobs:
       VMS_USERNAME: ${{ secrets.VMS_USERNAME }}
       VMS_PASSWORD: ${{ secrets.VMS_PASSWORD }}
       VMS_DRIVE_FILE_ID: ${{ secrets.VMS_DRIVE_FILE_ID }}
+      ERP_USERNAME: ${{ secrets.ERP_USERNAME }}
+      ERP_PASSWORD: ${{ secrets.ERP_PASSWORD }}
+      ERP_USER_TOKEN: ${{ secrets.ERP_USER_TOKEN }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
@@ -45,6 +51,7 @@ jobs:
       IN_FROM: ${{ inputs.from }}
       IN_TO: ${{ inputs.to }}
       IN_SNAPSHOT: ${{ inputs.snapshot }}
+      IN_ERP_ONLY: ${{ inputs.erp_only }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -54,6 +61,8 @@ jobs:
         run: |
           if [ -n "$IN_SNAPSHOT" ]; then
             python run.py vms --snapshot "$IN_SNAPSHOT"
+          elif [ -n "$IN_ERP_ONLY" ]; then
+            python run.py vms --erp-only
           elif [ -n "$IN_FROM" ]; then
             python run.py vms --from "$IN_FROM" ${IN_TO:+--to "$IN_TO"}
           else

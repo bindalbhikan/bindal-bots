@@ -425,13 +425,13 @@ function renderVms() {
     return `<tr><td>${dshort(d.date)}</td>${vms.codes.map((c) => `<td class="num">${d.codes[c][0] ? pf(pct(d.codes[c][1], d.codes[c][0])) : "—"}</td>`).join("")}
       <td class="num hide-sm">${n(v)}/${n(o)}</td><td class="num"><b>${pf(pct(v, o))}</b></td></tr>`;
   }).join("");
-  const list = vms.no_vms.filter((r) => (vmsCode === "All" || r.code === vmsCode) && (!vmsQuery || String(r.awb).toLowerCase().includes(vmsQuery)));
+  const list = (vms.no_vms || []).filter((r) => (vmsCode === "All" || r.code === vmsCode) && (!vmsQuery || String(r.awb).toLowerCase().includes(vmsQuery)));
   el.className = "grid two";
   el.innerHTML =
     card("VMS % by SLA date", "Orders with a packing video", `<div class="chart" id="c-vms"></div>${legend(series)}`) +
     card("Day by day", "",
       `<div class="scroll list"><table><thead><tr><th>SLA</th>${vms.codes.map((c) => `<th class="num">${c}</th>`).join("")}<th class="num hide-sm">VMS/Orders</th><th class="num">Total</th></tr></thead><tbody>${table}</tbody></table></div>`) +
-    card(`NO VMS · ${n(vms.no_vms.length)} AWB`, vms.label_errors ? `${vms.label_errors} label(s) could not be read` : "Latest run's SLA dates",
+    card(`NO VMS · ${n((vms.no_vms || []).length)} AWB`, vms.label_errors ? `${vms.label_errors} label(s) could not be read` : "Latest run's SLA dates",
       `<div class="chips">${["All", ...vms.codes].map((c) => `<button class="chip" type="button" data-code="${c}" aria-pressed="${c === vmsCode}">${c}</button>`).join("")}
         <input type="search" id="vms-q" placeholder="Search AWB" value="${esc(vmsQuery)}" aria-label="Search AWB">${copyBtn("vms-copy", "Copy AWBs")}</div>
        <div class="scroll list"><table><thead><tr><th>AWB</th><th>Code</th><th class="num">SLA</th></tr></thead>
@@ -440,6 +440,46 @@ function renderVms() {
   el.querySelectorAll("[data-code]").forEach((b) => (b.onclick = () => { vmsCode = b.dataset.code; renderVms(); }));
   const q = $("#vms-q"); q.oninput = () => { vmsQuery = q.value.trim().toLowerCase(); renderVms(); const nq = $("#vms-q"); nq.focus(); nq.setSelectionRange(nq.value.length, nq.value.length); };
   wireCopy("vms-copy", () => list.map((r) => r.awb).join("\n"));
+  renderErp(el);
+}
+
+// ERP vs VMS: parcels packed in the ERP since the 1st, and whether VMS has their video.
+let erpCode = "All", erpPacker = "All", erpQuery = "";
+function renderErp(el) {
+  const erp = DATA.vms_erp;
+  const box = document.createElement("div");
+  box.style.display = "contents";
+  el.appendChild(box);
+  if (!erp) { box.innerHTML = empty("🏭 ERP vs VMS"); return; }
+  const codes = erp.codes.filter((c) => c !== "OTHER" || erp.total[c][0]);
+  let to = 0, tv = 0;
+  const rows = codes.map((c) => {
+    const [o, v] = erp.total[c]; to += o; tv += v;
+    return `<tr><td>${esc(c)}</td><td class="num">${n(o)}</td><td class="num">${n(v)}</td><td class="num">${n(o - v)}</td><td class="num"><b>${pf(pct(v, o))}</b></td></tr>`;
+  }).join("");
+  const packers = {};
+  erp.missing.forEach((m) => (packers[m.packed_by || "—"] = (packers[m.packed_by || "—"] || 0) + 1));
+  const byPacker = Object.entries(packers).sort((a, b) => b[1] - a[1]);
+  const list = erp.missing.filter((m) => (erpCode === "All" || m.code === erpCode) && (erpPacker === "All" || (m.packed_by || "—") === erpPacker)
+    && (!erpQuery || `${m.awb} ${m.skus}`.toLowerCase().includes(erpQuery)));
+  const span = `${dshort(erp.from)} – ${dshort(erp.to)}`;
+  box.innerHTML =
+    card(`🏭 ERP vs VMS · ${span}`, "Parcels packed in the ERP that have a VMS video",
+      `<table><thead><tr><th>Code</th><th class="num">Packed</th><th class="num">VMS</th><th class="num">No VMS</th><th class="num">%</th></tr></thead>
+       <tbody>${rows}<tr class="total"><td>Total</td><td class="num">${n(to)}</td><td class="num">${n(tv)}</td><td class="num">${n(to - tv)}</td><td class="num">${pf(pct(tv, to))}</td></tr></tbody></table>
+       ${byPacker.length ? `<p class="hint" style="margin:12px 0 6px">No VMS by who packed</p><table><tbody>${byPacker.map(([p, c]) =>
+         `<tr><td>${esc(p)}</td><td class="barcell"><div class="bar" style="width:${(c / byPacker[0][1]) * 100}%;background:${css("--s2")}"></div></td><td class="num">${n(c)}</td></tr>`).join("")}</tbody></table>` : ""}`) +
+    card(`ERP NO VMS · ${n(erp.missing_count ?? erp.missing.length)} AWB`, erp.missing_count > erp.missing.length ? `Latest ${n(erp.missing.length)} shown · full list in the ERP NO VMS sheet` : "Packed in the ERP, no VMS scan",
+      `<div class="chips">${["All", ...codes].map((c) => `<button class="chip" type="button" data-ecode="${c}" aria-pressed="${c === erpCode}">${c}</button>`).join("")}
+        <select class="chip" id="erp-p" aria-label="Packed by">${["All", ...byPacker.map(([p]) => p)].map((p) => `<option ${p === erpPacker ? "selected" : ""}>${esc(p)}</option>`).join("")}</select>
+        <input type="search" id="erp-q" placeholder="Search AWB / SKU" value="${esc(erpQuery)}" aria-label="Search AWB or SKU">${copyBtn("erp-copy", "Copy AWBs")}</div>
+       <div class="scroll list"><table><thead><tr><th>AWB</th><th>Code</th><th class="hide-sm">Packed by</th><th class="num">Date</th></tr></thead>
+       <tbody>${list.map((m) => `<tr><td title="${esc(m.skus)}">${esc(m.awb)}</td><td>${esc(m.code)}</td><td class="hide-sm">${esc(m.packed_by)}</td><td class="num">${dshort(m.date)}</td></tr>`).join("") ||
+         `<tr><td colspan="4" class="empty">Nothing here 🎉</td></tr>`}</tbody></table></div>`);
+  box.querySelectorAll("[data-ecode]").forEach((b) => (b.onclick = () => { erpCode = b.dataset.ecode; renderVms(); }));
+  $("#erp-p").onchange = (e) => { erpPacker = e.target.value; renderVms(); };
+  const q = $("#erp-q"); q.oninput = () => { erpQuery = q.value.trim().toLowerCase(); renderVms(); const nq = $("#erp-q"); nq.focus(); nq.setSelectionRange(nq.value.length, nq.value.length); };
+  wireCopy("erp-copy", () => list.map((m) => m.awb).join("\n"));
 }
 
 // ------------------------------------------------------------------ AJIO TAT

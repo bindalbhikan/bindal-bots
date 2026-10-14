@@ -6,7 +6,7 @@ Every bot sends its report to Telegram **@bindal_exports_bot**.
 | Bot | Command | What it does | Daily (IST) |
 |---|---|---|---|
 | Sale | `python run.py sale` | Fills `SALE REPORT.xlsx` (OMSGuru + Flipkart FBF + Myntra SJIT), Telegram summary | 3:30 PM |
-| VMS | `python run.py vms` | Checks every Myntra order has a VMS packing video, fills `MYNTRA ORDER ID WISE VMS.xlsx` | 5:30 PM |
+| VMS | `python run.py vms` | Checks every Myntra order has a VMS packing video, fills `MYNTRA ORDER ID WISE VMS.xlsx`; also ERP vs VMS (parcels packed in the ERP, month to date) | 5:30 PM |
 | AJIO TAT | `python run.py ajio-tat` | AJIO dispatch TAT (the 10:10 rule), fills `AJIO_TAT_MASTER` | 5:30 PM |
 | AJIO SPF | `python run.py ajio-spf` | AJIO SPF claims: raise tickets + Gemini-drafted follow-ups, rebuilds `AJIO MASTER.xlsx` | 11:30 AM Wed + Sat |
 

@@ -26,6 +26,7 @@ NCOLS = 13
 AWB_SHEET = "_myntra_awb"
 NO_VMS_SHEET = "NO VMS"
 NO_VMS_HEADER = ["DATE", "CHANNEL CODE", "AWB", "REMARK"]
+ERP_NO_VMS_SHEET = "ERP NO VMS"
 MONTHS = {m.upper(): i for i, m in enumerate(calendar.month_abbr) if m}
 MONTHS.update({m.upper(): i for i, m in enumerate(calendar.month_name) if m})
 MONTHS["SEPT"] = 9
@@ -166,6 +167,105 @@ class VmsWorkbook:
             ws.column_dimensions[col].width = width
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = f"A1:D{max(len(all_rows) + 1, 2)}"
+
+    # ---------------------------------------------------------------- ERP vs VMS sheets
+    def _styles(self) -> dict:
+        """Cell styles borrowed from the latest month sheet, so the ERP sheets look the same."""
+        tpl = self._template()
+        total_row = next((r for r in range(FIRST_ROW, tpl.max_row + 1)
+                          if str(tpl.cell(r, 1).value or "").strip().upper() == "TOTAL"), FIRST_ROW)
+        pick = lambda r, c: copy.copy(tpl.cell(r, c)._style)
+        return {"title": pick(1, 1), "group": pick(2, 2), "head": pick(3, 2), "date": pick(FIRST_ROW, 1),
+                "num": pick(FIRST_ROW, 2), "pct": pick(FIRST_ROW, 4), "total": pick(total_row, 2),
+                "total_label": pick(total_row, 1), "total_pct": pick(total_row, 4), "tpl": tpl}
+
+    def write_erp_month(self, year: int, month: int, per_day: dict, codes: list[str], upto: date) -> None:
+        """'ERP VS VMS MON-YY': one row per day from the 1st to `upto`, per channel the parcels
+        packed in the ERP, how many have a VMS scan, and the %; a TOTAL row closes it.
+        The sheet is rebuilt on every run from the sources."""
+        name = f"ERP VS VMS {calendar.month_abbr[month].upper()}-{year % 100:02d}"
+        st = self._styles()
+        if name in self.wb.sheetnames:
+            idx = self.wb.index(self.wb[name])
+            del self.wb[name]
+        else:
+            anchor = self.wb[NO_VMS_SHEET] if NO_VMS_SHEET in self.wb.sheetnames else st["tpl"]
+            idx = self.wb.index(anchor) + 1
+        ws = self.wb.create_sheet(name, index=idx)
+        groups = codes + ["TOTAL"]
+        ncol = 1 + 3 * len(groups)
+        put = lambda r, c, v, style: setattr(ws.cell(r, c, v), "_style", copy.copy(st[style]))
+
+        put(1, 1, f"ERP vs VMS · {calendar.month_name[month]} {year} · 1-{upto.day} "
+                  "(parcels packed in the ERP that have a VMS packing video)", "title")
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncol)
+        put(2, 1, "", "group")
+        put(3, 1, "DATE", "head")
+        for g, group in enumerate(groups):
+            col = 2 + 3 * g
+            put(2, col, group, "group")
+            for k in (1, 2):
+                put(2, col + k, None, "group")
+            ws.merge_cells(start_row=2, start_column=col, end_row=2, end_column=col + 2)
+            for k, label in enumerate(("ERP", "VMS", "%")):
+                put(3, col + k, label, "head")
+
+        days = [date(year, month, d) for d in range(1, upto.day + 1)]
+        sums = {g: [0, 0] for g in groups}
+        for i, day in enumerate(days):
+            r = FIRST_ROW + i
+            put(r, 1, day, "date")
+            counts = per_day.get(day, {})
+            total = [sum(counts.get(c, [0, 0])[0] for c in codes), sum(counts.get(c, [0, 0])[1] for c in codes)]
+            for g, group in enumerate(groups):
+                erp, vms = total if group == "TOTAL" else counts.get(group, [0, 0])
+                sums[group][0] += erp
+                sums[group][1] += vms
+                col = 2 + 3 * g
+                put(r, col, erp, "num")
+                put(r, col + 1, vms, "num")
+                put(r, col + 2, (vms / erp) if erp else None, "pct")
+                ws.cell(r, col + 2).number_format = "0.0%"
+        t = FIRST_ROW + len(days)
+        put(t, 1, "TOTAL", "total_label")
+        for g, group in enumerate(groups):
+            col = 2 + 3 * g
+            erp, vms = sums[group]
+            put(t, col, erp, "total")
+            put(t, col + 1, vms, "total")
+            put(t, col + 2, (vms / erp) if erp else None, "total_pct")
+            ws.cell(t, col + 2).number_format = "0.0%"
+        ws.column_dimensions["A"].width = 12
+        for c in range(2, ncol + 1):
+            ws.column_dimensions[get_column_letter(c)].width = 8
+        ws.freeze_panes = "B4"
+
+    def write_erp_no_vms(self, first: date, upto: date, rows: list[dict]) -> None:
+        """'ERP NO VMS': packed in the ERP, no VMS scan. This month's rows are replaced each run;
+        earlier months stay as they were."""
+        header = ["DATE", "CHANNEL CODE", "AWB", "PACKED BY", "VOUCHER", "SKU"]
+        st = self._styles()
+        if ERP_NO_VMS_SHEET in self.wb.sheetnames:
+            ws = self.wb[ERP_NO_VMS_SHEET]
+            kept = [list(r[:6]) for r in ws.iter_rows(min_row=2, values_only=True)
+                    if r and r[0] is not None and not (first <= _as_date(r[0]) <= upto)]
+        else:
+            names = self.wb.sheetnames
+            after = next((n for n in reversed(names) if n.startswith("ERP VS VMS")), NO_VMS_SHEET)
+            ws = self.wb.create_sheet(ERP_NO_VMS_SHEET, index=(names.index(after) + 1) if after in names else None)
+            kept = []
+        new = [[r["date"], r["code"], r["awb"], r["packed_by"], r["voucher"], r["skus"]] for r in rows]
+        all_rows = sorted(kept + new, key=lambda r: (_as_date(r[0]), str(r[1] or ""), str(r[2] or "")))
+        ws.delete_rows(1, ws.max_row)
+        for c, name in enumerate(header, start=1):
+            ws.cell(1, c, name)._style = copy.copy(st["head"])
+        for i, row in enumerate(all_rows, start=2):
+            for c, value in enumerate(row, start=1):
+                ws.cell(i, c, value)._style = copy.copy(st["date"] if c == 1 else st["num"])
+        for col, width in zip("ABCDEF", (12, 14, 20, 14, 20, 30)):
+            ws.column_dimensions[col].width = width
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = f"A1:F{max(len(all_rows) + 1, 2)}"
 
     def month_days(self, year: int, month: int) -> list[dict]:
         """[{date, codes: {code: [orders, vms]}}] for every filled day of a month sheet."""

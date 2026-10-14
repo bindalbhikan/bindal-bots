@@ -11,7 +11,7 @@
 
 import PAGE from "./page.html";
 
-const KEYS = ["sale", "sale_today", "vms", "ajio_tat", "ajio_spf",
+const KEYS = ["sale", "sale_today", "vms", "vms_erp", "ajio_tat", "ajio_spf",
               "run_sale", "run_vms", "run_ajio_tat", "run_ajio_spf"];
 const COOKIE = "bd_session";
 const SESSION_DAYS = 30;
