@@ -9,14 +9,11 @@ type = "Text"
 globs = ["**/*.html"]
 fallthrough = true
 
-# Same namespace the Telegram worker writes the bots' numbers into.
+# Same namespace the Telegram worker writes the bots' numbers into (also remembers used
+# sign-in links for an hour).
 [[kv_namespaces]]
 binding = "DASH"
 id = "67db94fc82af438496705a09419c2ac3"
 
-[vars]
-# Cloudflare Access (email one-time code) in front of this worker. Until both are set the
-# dashboard refuses every request. Team domain: <team>.cloudflareaccess.com; AUD: the
-# "Application Audience (AUD) Tag" of the Access application for this workers.dev URL.
-ACCESS_TEAM_DOMAIN = ""
-ACCESS_AUD = ""
+# Secret (wrangler secret put / bulk): SESSION_KEY - the same value as in the Telegram worker,
+# which signs the sign-in links. Without it the dashboard serves nothing.

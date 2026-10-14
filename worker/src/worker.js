@@ -106,7 +106,8 @@ const SCREENS = {
     rows: [
       [["📈 Sale", "m:sale"], ["📹 VMS", "m:vms"]],
       [["📦 AJIO TAT", "m:tat"], ["🧾 AJIO SPF", "m:spf"]],
-      [["📋 Status", "st"], ["❓ Help", "hp"]],
+      [["📋 Status", "st"], ["🖥 Dashboard", "db"]],
+      [["❓ Help", "hp"]],
     ],
   },
   sale: {
@@ -178,6 +179,9 @@ function helpText() {
     `Tap <b>${KEYBOARD_MENU}</b> below, or type:`,
     "",
     ...lines,
+    "🖥 <b>Dashboard</b>",
+    "<code>/dashboard</code> — sign-in link, valid 10 min",
+    "",
     "⏰ <b>Auto runs (IST)</b>",
     ...SCHEDULE.map((s) => `• ${COMMANDS[s.cmd].name}: ${s.ist}`),
   ].join("\n");
@@ -270,6 +274,25 @@ async function pushDashboard(request, env, key) {
   return new Response("stored");
 }
 
+// Dashboard sign-in: a link carrying a token signed with SESSION_KEY (shared with the dashboard
+// worker), valid 10 minutes and usable once. Only allowed chats ever reach this.
+async function sendDashboardLink(env, chatId, replyTo, who) {
+  if (!env.SESSION_KEY || !env.DASHBOARD_PAGE) {
+    return sendMessage(env, chatId, "🖥 <b>Dashboard</b>\n\nSign-in is not set up yet.", replyTo);
+  }
+  const claim = { kind: "login", chat: String(chatId), who: who || "", nonce: crypto.randomUUID(), exp: Date.now() + 10 * 60000 };
+  const body = b64url(new TextEncoder().encode(JSON.stringify(claim)));
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.SESSION_KEY), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body)));
+  const link = `${env.DASHBOARD_PAGE.replace(/\/$/, "")}/login?t=${body}.${b64url(sig)}`;
+  return sendMessage(env, chatId, "🖥 <b>Dashboard</b>\n\nTap below to sign in on this device.\n<i>Link works once, for 10 minutes.</i>", replyTo,
+                     { inline_keyboard: [[{ text: "Open dashboard", url: link }]] });
+}
+
+function b64url(bytes) {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
 function dispatch(env, cmd, inputs) {
   return github(env, `/repos/${OWNER}/${REPO}/actions/workflows/${cmd.workflow}/dispatches`, {
     method: "POST",
@@ -297,6 +320,10 @@ async function handleTap(env, cb) {
   if (data === "st") {
     await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id, text: "Checking…" });
     return show(await statusText(env), [[["🔄 Refresh", "st"], BACK[0]]]);
+  }
+  if (data === "db") {
+    await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id });
+    return sendDashboardLink(env, chatId, undefined, cb.from?.first_name);
   }
   if (data === "hp") {
     await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id });
@@ -326,6 +353,7 @@ async function handle(env, chatId, replyTo, text, who) {
       return await reply(SCREENS.main.title, keyboard(SCREENS.main.rows));
     }
     if (name === "help") return await reply(helpText());
+    if (name === "dashboard") return await sendDashboardLink(env, chatId, replyTo, who);
     if (name === "menu") return await reply(SCREENS.main.title, keyboard(SCREENS.main.rows));
     if (name === "status") return await reply(await statusText(env), keyboard([[["🔄 Refresh", "st"], ["📋 Menu", "m:main"]]]));
 

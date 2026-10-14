@@ -42,7 +42,8 @@ bindal/
     snapshot.py files.py   sheet pictures (LibreOffice), atomic workbook save
   awb_tracker/             courier tracking (BlueDart, Delhivery, Ekart, Shadowfax, Valmo, XpressBees)
   sale/  vms/  ajio_tat/  ajio_spf/    one package per bot
-worker/                    Cloudflare Worker: Telegram commands + the daily cron
+worker/                    Cloudflare Worker: Telegram commands + the daily cron + dashboard data push
+dashboard/                 Cloudflare Worker: the dashboard page (sign-in through /dashboard in Telegram)
 .github/workflows/         one workflow per bot (workflow_dispatch) + tests
 tests/                     python -m pytest
 scripts/                   local runs

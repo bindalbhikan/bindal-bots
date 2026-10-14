@@ -34,6 +34,15 @@ Drive keeps the old versions). It refuses to upload when someone changed the fil
 - After changing `worker/`: `cd worker && npx wrangler deploy` (a change that is not deployed
   does not run — the Wed+Sat SPF schedule sat undeployed on 13-14 Oct 2026).
 
+## Dashboard
+
+`https://bindal-dashboard.bhikan-serein.workers.dev` (worker in `dashboard/`). Each bot run posts
+its numbers and its result to the Telegram worker (`/api/push/<key>`, `DASHBOARD_TOKEN`), which
+keeps them in Cloudflare KV `DASH`; the dashboard reads them. Sign-in: send `/dashboard` to the
+bot (or tap 🖥 Dashboard) → a link valid 10 minutes, usable once → 30-day cookie on that device.
+Links are signed with `SESSION_KEY` (same secret in both workers); changing it signs everyone
+out. Cloudflare Access was not used: its Zero Trust sign-up asks for a card.
+
 ## Code layout
 
 `bindal/core/` is shared by every bot: settings + logging (`config.py`), the run frame that

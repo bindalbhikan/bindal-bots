@@ -13,6 +13,8 @@ crons = ["0 6 * * WED,SAT", "0 10 * * *", "0 12 * * *"]
 [vars]
 # Extra Telegram users allowed to send commands (comma-separated chat ids, from DMs with the bot).
 EXTRA_CHAT_IDS = "632091833"  # Vipul
+# Dashboard address for /dashboard sign-in links (SESSION_KEY secret signs them).
+DASHBOARD_PAGE = "https://bindal-dashboard.bhikan-serein.workers.dev"
 
 # Latest numbers of each bot for the dashboard (worker/../dashboard reads the same namespace).
 # The bots POST them to /api/push/<key> with the DASHBOARD_TOKEN secret.
