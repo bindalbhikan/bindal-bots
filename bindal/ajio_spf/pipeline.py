@@ -420,6 +420,7 @@ def write_bot_log(path: Path, previous: list[list], raised: list[dict], replies:
 # ------------------------------------------------------------------ report
 
 def summary(rows, raised, replies, soon, ctx, dry, today) -> str:
+    """Short lines for a phone screen."""
     esc = telegram.esc
     pending = sum(1 for r in rows if not claims.is_received(r))
     ok_raise = [r for r in raised if r["result"] in ("created", "dry-run")]
@@ -427,35 +428,45 @@ def summary(rows, raised, replies, soon, ctx, dry, today) -> str:
     for r in ok_raise:
         by_type[r["type"]] = by_type.get(r["type"], 0) + 1
     sent = [r for r in replies if r["result"] in ("sent", "dry-run")]
-    verb = "to raise" if dry else "raised"
-    lines = [f"<b>AJIO SPF - {today:%d-%m-%Y}</b>" + (" (DRY RUN - nothing posted)" if dry else ""),
-             f"Returns {len(rows)} | received {len(rows) - pending} | not received {pending}",
-             f"Tickets {verb}: {len(ok_raise)}"
-             + (" (" + ", ".join(f"{k.split()[0].title()} {v}" for k, v in sorted(by_type.items())) + ")" if by_type else ""),
-             f"Replies {'drafted' if dry else 'sent'}: {len(sent)} (re-open {sum(1 for r in sent if r['reopen'])})",
-             f"Next days: dispute {soon['dispute']} | 60-day transit {soon['transit']}"]
+    kind = {claims.DISPUTE: "Dispute", claims.NOT_DELIVERED: "Not delivered"}
+    lines = [f"🧾 <b>AJIO SPF · {today:%d %b %Y}</b>"]
+    if dry:
+        lines.append("🧪 <i>Dry run — nothing posted</i>")
+    lines += ["",
+              f"📦 Returns {len(rows)}",
+              f"✅ Received {len(rows) - pending} · ⏳ Open {pending}",
+              f"🎫 Tickets {'to raise' if dry else 'raised'}: <b>{len(ok_raise)}</b>"
+              + (" (" + ", ".join(f"{kind.get(k, k.title())} {v}" for k, v in sorted(by_type.items())) + ")"
+                 if by_type else ""),
+              f"💬 Replies {'drafted' if dry else 'sent'}: <b>{len(sent)}</b>"
+              + (f" · re-open {sum(1 for r in sent if r['reopen'])}" if sent else ""),
+              f"🔜 Coming: dispute {soon['dispute']} · transit {soon['transit']}"]
     pk = ctx.get("pickup")
     if pk:
-        lines.append(f"Courier pickup (not received): picked {pk.get('PICKED UP', 0)} | not picked "
-                     f"{pk.get('NOT PICKED UP', 0)} | cancelled {pk.get('PICKUP CANCELLED', 0)} | failed "
-                     f"{pk.get('PICKUP FAILED', 0)} | no tracking {pk.get('NO TRACKING', 0)}")
+        lines += ["", "🚚 <b>Courier pickup</b> (open returns)",
+                  f"   picked {pk.get('PICKED UP', 0)} · not picked {pk.get('NOT PICKED UP', 0)}",
+                  f"   cancelled {pk.get('PICKUP CANCELLED', 0)} · failed {pk.get('PICKUP FAILED', 0)}",
+                  f"   no tracking {pk.get('NO TRACKING', 0)}"]
     elif ctx.get("pickup_error"):
-        lines.append(f"Courier pickup check failed: {esc(ctx['pickup_error'])[:150]}")
+        lines.append(f"🚚 Pickup check failed: {esc(ctx['pickup_error'])[:120]}")
     if soon["missed_dispute"]:
-        lines.append(f"Delivered over {num('DISPUTE_MAX_DAYS', 365)} days ago, no ticket: {soon['missed_dispute']}")
+        lines.append(f"⌛ Too old for a ticket (>{num('DISPUTE_MAX_DAYS', 365)} days): {soon['missed_dispute']}")
     other = [r for r in raised if r["result"] not in ("created", "dry-run")]
     if other:
-        lines.append(f"Raise skipped/failed: {len(other)}")
+        lines.append(f"↪️ Skipped / failed: {len(other)}")
+    if ok_raise:
+        lines.append("")
     for r in ok_raise[:10]:
-        lines.append(f"- {esc(r['return_order'])} {esc(r['type'].split()[0].title())} Rs{r['amount']:.0f} ({esc(r['reason'])})")
+        lines.append(f"• <b>{esc(r['return_order'])}</b> {kind.get(r['type'], esc(r['type'].title()))} ₹{r['amount']:.0f}")
+        lines.append(f"   <i>{esc(r['reason'])}</i>")
     if len(ok_raise) > 10:
-        lines.append(f"... +{len(ok_raise) - 10} more in the file")
+        lines.append(f"… +{len(ok_raise) - 10} more in the file")
     if ctx["errors"]:
-        lines.append("<b>Errors</b> (raising and replies paused):")
-        lines += [f"- {esc(e)[:200]}" for e in ctx["errors"]]
+        lines += ["", "⚠️ <b>Errors</b> (raising and replies paused):"]
+        lines += [f"• {esc(e)[:160]}" for e in ctx["errors"]]
     drive = ctx.get("master_drive")
     if drive is not None and getattr(drive, "meta", None):
-        lines.append(f'<a href="{drive.url}">AJIO MASTER</a>')
+        lines += ["", f'📄 <a href="{drive.url}">Open AJIO MASTER</a>']
     return "\n".join(lines)
 
 

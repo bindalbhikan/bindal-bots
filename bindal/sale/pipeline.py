@@ -81,37 +81,43 @@ def sjit_source():
 
 # ------------------------------------------------------------------ telegram
 
+def _notes(notes: list[str]) -> list[str]:
+    return ["", "⚠️ <b>Notes</b>", *(f"• {telegram.esc(n)}" for n in notes)] if notes else []
+
+
+def _sale_table(rows: list[tuple[str, int, int | None]]) -> str:
+    """Channel | Gross | Cancel, 22 characters wide (fits a phone)."""
+    lines = [f"{'Channel':<10}{'Gross':>6}{'Cncl':>6}"]
+    lines += [f"{name[:10]:<10}{g:>6}{(c if c else '-'):>6}" for name, g, c in rows]
+    lines.append(f"{'Total':<10}{sum(g for _, g, _ in rows):>6}")
+    return "<pre>" + telegram.esc("\n".join(lines)) + "</pre>"
+
+
 def telegram_report(book: SaleWorkbook, day: date, notes: list[str]) -> str:
-    esc = telegram.esc
-    rows, total = [], 0
-    for block in REPORT_ORDER:
-        g, c = book.read(day, block, "GROSS"), book.read(day, block, "CANCEL")
-        total += g
-        rows.append(f"{SHORT.get(block, block.title())[:10]:<10} {g:>5} {c if c else '-':>5}")
-    table = [f"{'Channel':<10} {'Gross':>5} {'Cncl':>5}", *rows, f"{'Total':<10} {total:>5}"]
+    rows = [(SHORT.get(b, b.title()), book.read(day, b, "GROSS"), book.read(day, b, "CANCEL")) for b in REPORT_ORDER]
     month = book.month_gross(day)
-    mrows = [f"{SHORT.get(b, b.title())[:10]:<10} {month.get(b, 0):>6}" for b in REPORT_ORDER]
-    mtable = [f"{'Channel':<10} {'Gross':>6}", *mrows, f"{'Total':<10} {sum(month.get(b, 0) for b in REPORT_ORDER):>6}"]
-    lines = [f"<b>📈 Daily Sale - {day:%d %b %Y}</b>",
-             "<pre>" + esc("\n".join(table)) + "</pre>",
-             f"<b>🗓 {day:%B} total (1-{day.day})</b>",
-             "<pre>" + esc("\n".join(mtable)) + "</pre>"]
-    if notes:
-        lines.append("⚠️ " + esc(" | ".join(notes)))
-    return "\n".join(lines)
+    mrows = [(SHORT.get(b, b.title()), month.get(b, 0), None) for b in REPORT_ORDER]
+    return "\n".join([
+        f"📈 <b>Daily Sale · {day:%d %b %Y}</b>",
+        "",
+        f"<b>📅 {day:%d %b}</b>",
+        _sale_table(rows),
+        "",
+        f"<b>🗓 {day:%B} 1-{day.day}</b>",
+        _sale_table(mrows),
+        *_notes(notes),
+    ])
 
 
 def today_report(counts: dict[str, int], cancels: dict[str, int], notes: list[str]) -> str:
-    esc = telegram.esc
-    rows = [f"{SHORT.get(b, b.title())[:10]:<10} {counts.get(b, 0):>5} {cancels.get(b) or '-':>5}"
-            for b in TODAY_ORDER]
-    total = sum(counts.get(b, 0) for b in TODAY_ORDER)
-    table = [f"{'Channel':<10} {'Gross':>5} {'Cncl':>5}", *rows, f"{'Total':<10} {total:>5}"]
-    lines = [f"<b>📊 Today's Sale - {datetime.now():%d %b %Y, %I:%M %p}</b>",
-             "<pre>" + esc("\n".join(table)) + "</pre>"]
-    if notes:
-        lines.append("⚠️ " + esc(" | ".join(notes)))
-    return "\n".join(lines)
+    rows = [(SHORT.get(b, b.title()), counts.get(b, 0), cancels.get(b)) for b in TODAY_ORDER]
+    return "\n".join([
+        f"📊 <b>Today's Sale · {datetime.now():%d %b, %I:%M %p}</b>",
+        "<i>so far today, by order time</i>",
+        "",
+        _sale_table(rows),
+        *_notes(notes),
+    ])
 
 
 def run_today(args) -> int:

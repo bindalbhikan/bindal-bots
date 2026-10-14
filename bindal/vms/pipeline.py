@@ -89,6 +89,7 @@ def day_counts(df: pd.DataFrame, day: date) -> dict[str, tuple[int, int]]:
 # ------------------------------------------------------------------ telegram
 
 def _table(counts: dict[str, tuple[int, int]]) -> str:
+    """Code | Orders | VMS | %, 24 characters wide (fits a phone)."""
     lines = [f"{'Code':<5} {'Order':>5} {'VMS':>5} {'%':>6}"]
     to = tv = 0
     for c in CODES:
@@ -100,10 +101,10 @@ def _table(counts: dict[str, tuple[int, int]]) -> str:
 
 
 def telegram_report(per_day: dict[date, dict], month: dict[str, tuple[int, int]], today: date) -> str:
-    lines = [f"<b>📹 Myntra VMS - {today:%d %b %Y}</b>"]
+    lines = [f"📹 <b>Myntra VMS · {today:%d %b %Y}</b>", "<i>orders with a packing video, by SLA date</i>"]
     for d, counts in per_day.items():
         lines += ["", f"<b>📅 SLA {d:%d %b}</b>", _table(counts)]
-    lines += ["", f"<b>🗓 {today:%B} total (1-{today.day})</b>", _table(month)]
+    lines += ["", f"<b>🗓 {today:%B} 1-{today.day}</b>", _table(month)]
     return "\n".join(lines)
 
 
@@ -177,7 +178,8 @@ def run(args) -> int:
     month = VmsWorkbook(book_path).month_totals(dates[-1])
     text = telegram_report({d: per_day[d] for d in dates[-2:]}, month, dates[-1])
     if errors:
-        text += f"\n⚠️ {len(errors)} shipping label(s) not readable: Myntra AWB unknown, counted as NO VMS"
+        text += ("\n\n⚠️ <b>Notes</b>\n"
+                 f"• {len(errors)} shipping label(s) not readable: Myntra AWB unknown, counted as NO VMS")
     if args.no_telegram:
         print(text)
     else:

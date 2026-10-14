@@ -4,6 +4,9 @@
 // ALLOWED_CHAT_IDS (secret) + EXTRA_CHAT_IDS (wrangler.toml var) are comma-separated chat ids;
 // messages and button taps from any other chat are ignored. Each run's report goes to the chat
 // that asked for it.
+//
+// Every reply is written for a phone: a bold heading line, a blank line, short lines below,
+// and at most two short buttons per row.
 
 // All bots live in one repo; each command starts one of its workflows.
 const OWNER = "bindalbhikan";
@@ -17,8 +20,8 @@ const COMMANDS = {
   sale: {
     workflow: "sale.yml",
     icon: "📈",
-    label: "Daily sale report",
-    usage: "/sale · /sale today · /sale 2026-10-01 2026-10-06",
+    name: "Daily Sale",
+    examples: ["/sale", "/sale today", "/sale 2026-10-01 2026-10-07"],
     minutes: 1,
     inputs: (args) =>
       args.length === 1 && args[0].toLowerCase() === "today" ? { today: "1" } : dateRange(args),
@@ -26,33 +29,33 @@ const COMMANDS = {
   vms: {
     workflow: "vms.yml",
     icon: "📹",
-    label: "Myntra VMS report",
-    usage: "/vms · /vms 2026-10-01 2026-10-06",
+    name: "Myntra VMS",
+    examples: ["/vms", "/vms 2026-10-01 2026-10-07"],
     minutes: 2,
     inputs: dateRange,
   },
   ajiotat: {
     workflow: "ajio-tat.yml",
     icon: "📦",
-    label: "AJIO TAT update",
-    usage: "/ajiotat · /ajiotat 3  (today + 3 previous days)",
+    name: "AJIO TAT",
+    examples: ["/ajiotat", "/ajiotat 3"],
     minutes: 2,
     inputs: (args) => {
       if (args.length === 0) return {};
       if (args.length === 1 && /^\d{1,2}$/.test(args[0])) return { days: args[0] };
-      return "days must be a number, e.g. /ajiotat 3";
+      return "Days must be a number, e.g. /ajiotat 3";
     },
   },
   ajiospf: {
     workflow: "ajio-spf.yml",
     icon: "🧾",
-    label: "AJIO SPF claims",
-    usage: "/ajiospf · /ajiospf dry  (dry = only list, nothing posted)",
+    name: "AJIO SPF",
+    examples: ["/ajiospf dry", "/ajiospf"],
     minutes: 13,
     inputs: (args) => {
       if (args.length === 0) return {};
       if (args.length === 1 && args[0].toLowerCase() === "dry") return { dry_run: "1" };
-      return "use /ajiospf or /ajiospf dry";
+      return "Use /ajiospf or /ajiospf dry";
     },
   },
   // Pictures of a month sheet (the workbook is not changed); same workflows, so left out of
@@ -60,8 +63,8 @@ const COMMANDS = {
   salepic: {
     workflow: "sale.yml",
     icon: "🖼",
-    label: "Sale sheet picture",
-    usage: "/salepic · /salepic 2026-09",
+    name: "Sale sheet photo",
+    examples: ["/salepic", "/salepic 2026-09"],
     picture: true,
     minutes: 4,
     inputs: monthArg,
@@ -69,8 +72,8 @@ const COMMANDS = {
   vmspic: {
     workflow: "vms.yml",
     icon: "🖼",
-    label: "VMS sheet picture",
-    usage: "/vmspic · /vmspic 2026-09",
+    name: "VMS sheet photo",
+    examples: ["/vmspic", "/vmspic 2026-09"],
     picture: true,
     minutes: 4,
     inputs: monthArg,
@@ -80,14 +83,14 @@ const COMMANDS = {
 function monthArg(args) {
   if (args.length === 0) return { snapshot: "current" };
   if (args.length === 1 && /^\d{4}-\d{2}$/.test(args[0])) return { snapshot: args[0] };
-  return "month must be YYYY-MM, e.g. 2026-09";
+  return "Month must be YYYY-MM, e.g. 2026-09";
 }
 
 // Daily automatic runs, in IST. Cloudflare cron is UTC (IST = UTC + 5:30), so each `cron`
 // below must also be listed under [triggers] in wrangler.toml. GitHub's own `schedule:`
 // is not used: it skipped runs.
 const SCHEDULE = [
-  { ist: "11:30 AM Wed + Sat", cron: "0 6 * * WED,SAT", cmd: "ajiospf" },
+  { ist: "11:30 AM Wed, Sat", cron: "0 6 * * WED,SAT", cmd: "ajiospf" },
   { ist: "3:30 PM daily", cron: "0 10 * * *", cmd: "sale" },
   { ist: "5:30 PM daily", cron: "0 12 * * *", cmd: "vms" },
   { ist: "5:30 PM daily", cron: "0 12 * * *", cmd: "ajiotat" },
@@ -99,41 +102,42 @@ const SCHEDULE = [
 const BACK = [["⬅️ Back", "m:main"]];
 const SCREENS = {
   main: {
-    title: "📊 <b>Bindal Exports — Reports</b>\nChoose a report:",
+    title: "📊 <b>Bindal Exports</b>\n\nChoose a report 👇",
     rows: [
-      [["📈 Sale", "m:sale"], ["📹 Myntra VMS", "m:vms"]],
+      [["📈 Sale", "m:sale"], ["📹 VMS", "m:vms"]],
       [["📦 AJIO TAT", "m:tat"], ["🧾 AJIO SPF", "m:spf"]],
       [["📋 Status", "st"], ["❓ Help", "hp"]],
     ],
   },
   sale: {
-    title: "📈 <b>Daily sale report</b>\nOMSGuru + Flipkart FBF + Myntra SJIT → SALE REPORT.xlsx",
+    title: "📈 <b>Daily Sale</b>\n<i>OMSGuru + FBF + SJIT</i>\n\nWhich days?",
     rows: [
-      [["Yesterday", "r:sale"], ["Today so far", "r:sale today"]],
+      [["Yesterday", "r:sale"], ["Today", "r:sale today"]],
       [["Last 7 days", "r:sale @week"], ["This month", "r:sale @month"]],
-      [["🖼 Month sheet picture", "r:salepic"]],
+      [["🖼 Sheet photo", "r:salepic"]],
       BACK,
     ],
   },
   vms: {
-    title: "📹 <b>Myntra VMS report</b>\nPacking video check by SLA date → MYNTRA ORDER ID WISE VMS.xlsx",
+    title: "📹 <b>Myntra VMS</b>\n<i>Packing video check</i>\n\nWhich SLA dates?",
     rows: [
       [["Today", "r:vms"], ["Last 7 days", "r:vms @week"]],
-      [["This month", "r:vms @month"], ["🖼 Month sheet picture", "r:vmspic"]],
+      [["This month", "r:vms @month"], ["🖼 Sheet photo", "r:vmspic"]],
       BACK,
     ],
   },
   tat: {
-    title: "📦 <b>AJIO TAT update</b>\nDispatch TAT (10:10 rule) + courier pickup → AJIO_TAT_MASTER.xlsx",
+    title: "📦 <b>AJIO TAT</b>\n<i>Dispatch TAT + courier pickup</i>\n\nWhich order dates?",
     rows: [
-      [["Today", "r:ajiotat"], ["Last 3 days", "r:ajiotat 3"], ["Last 7 days", "r:ajiotat 7"]],
+      [["Today", "r:ajiotat"], ["Last 3 days", "r:ajiotat 3"]],
+      [["Last 7 days", "r:ajiotat 7"]],
       BACK,
     ],
   },
   spf: {
-    title: "🧾 <b>AJIO SPF claims</b>\nRaise SPF tickets + follow-ups → AJIO MASTER.xlsx\n<i>Dry run only lists what would be posted. LIVE posts on AJIO.</i>",
+    title: "🧾 <b>AJIO SPF</b>\n<i>SPF tickets + follow-ups</i>\n\n🧪 Dry = only lists\n⚠️ LIVE = posts on AJIO",
     rows: [
-      [["🧪 Dry run", "r:ajiospf dry"], ["⚠️ LIVE run", "c:ajiospf"]],
+      [["🧪 Dry run", "r:ajiospf dry"], ["⚠️ LIVE", "c:ajiospf"]],
       BACK,
     ],
   },
@@ -149,7 +153,7 @@ const REPLY_KEYBOARD = {
 
 function dateRange(args) {
   if (args.length === 0) return {};
-  if (args.length > 2 || !args.every((a) => DATE.test(a))) return "dates must be YYYY-MM-DD";
+  if (args.length > 2 || !args.every((a) => DATE.test(a))) return "Dates must be YYYY-MM-DD";
   return args.length === 2 ? { from: args[0], to: args[1] } : { from: args[0] };
 }
 
@@ -159,26 +163,23 @@ function expandPeriod(name, args) {
   if (args.length !== 1 || !args[0].startsWith("@")) return args;
   const ist = (d) => new Date(d.getTime() + 330 * 60000).toISOString().slice(0, 10);
   const today = new Date();
-  const day = (n) => new Date(today.getTime() - n * 86400000);
-  const end = name === "sale" ? day(1) : today;
-  const start = args[0] === "@week" ? new Date(end.getTime() - 6 * 86400000) : null;
-  const from = start ? ist(start) : `${ist(end).slice(0, 8)}01`;
+  const end = name === "sale" ? new Date(today.getTime() - 86400000) : today;
+  const from = args[0] === "@week" ? ist(new Date(end.getTime() - 6 * 86400000)) : `${ist(end).slice(0, 8)}01`;
   return [from, ist(end)];
 }
 
 function helpText() {
-  const lines = Object.values(COMMANDS).map((c) => `${c.icon} <b>${c.label}</b>\n<code>${esc(c.usage)}</code>`);
-  const auto = SCHEDULE.map((s) => `• ${COMMANDS[s.cmd].label}: ${s.ist}`);
+  const lines = Object.values(COMMANDS).flatMap((c) => [
+    `${c.icon} <b>${c.name}</b>`, ...c.examples.map((e) => `<code>${e}</code>`), "",
+  ]);
   return [
-    "❓ <b>How to use</b>",
-    `Tap <b>${KEYBOARD_MENU}</b> below (or send /menu) and pick a report. Or type a command:`,
+    "❓ <b>Help</b>",
+    "",
+    `Tap <b>${KEYBOARD_MENU}</b> below, or type:`,
     "",
     ...lines,
-    "",
-    "📋 /status — last run of each report",
-    "",
-    "⏰ <b>Automatic runs (IST)</b>",
-    ...auto,
+    "⏰ <b>Auto runs (IST)</b>",
+    ...SCHEDULE.map((s) => `• ${COMMANDS[s.cmd].name}: ${s.ist}`),
   ].join("\n");
 }
 
@@ -238,7 +239,9 @@ export default {
           } catch (e) {
             console.log(`cron ${s.cmd} failed: ${e.stack || e}`);
             const chat = String(env.ALLOWED_CHAT_IDS || "").split(",")[0].trim();
-            if (chat) await sendMessage(env, chat, `❌ <b>${cmd.label}</b> (auto ${s.ist}) could not start: ${esc(e.message)}`);
+            if (chat) {
+              await sendMessage(env, chat, `❌ <b>${cmd.name} did not start</b>\n<i>auto run, ${s.ist}</i>\n\n<code>${esc(e.message)}</code>`);
+            }
           }
         })
       )
@@ -271,7 +274,7 @@ async function handleTap(env, cb) {
     return show(screen.title, screen.rows);
   }
   if (data === "st") {
-    await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id, text: "Checking GitHub…" });
+    await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id, text: "Checking…" });
     return show(await statusText(env), [[["🔄 Refresh", "st"], BACK[0]]]);
   }
   if (data === "hp") {
@@ -280,8 +283,8 @@ async function handleTap(env, cb) {
   }
   if (data.startsWith("c:")) {
     await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id });
-    return show("⚠️ <b>AJIO SPF LIVE</b>\nThis raises SPF tickets and posts replies on AJIO.\nStart it?",
-                [[["✅ Yes, run LIVE", `r:${data.slice(2)}`], ["✖️ Cancel", "m:spf"]]]);
+    return show("⚠️ <b>AJIO SPF · LIVE</b>\n\nRaises tickets and posts replies on AJIO.\nStart it?",
+                [[["✅ Yes, start", `r:${data.slice(2)}`], ["✖️ Cancel", "m:spf"]]]);
   }
   if (data.startsWith("r:")) {
     await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id, text: "Starting…" });
@@ -298,7 +301,7 @@ async function handle(env, chatId, replyTo, text, who) {
 
   try {
     if (name === "start") {
-      await reply("👋 <b>Bindal Exports reports</b>\nUse the buttons below the chat box any time.", REPLY_KEYBOARD);
+      await reply("👋 <b>Bindal Exports</b>\n\nUse the buttons below the chat box any time.", REPLY_KEYBOARD);
       return await reply(SCREENS.main.title, keyboard(SCREENS.main.rows));
     }
     if (name === "help") return await reply(helpText());
@@ -306,11 +309,13 @@ async function handle(env, chatId, replyTo, text, who) {
     if (name === "status") return await reply(await statusText(env), keyboard([[["🔄 Refresh", "st"], ["📋 Menu", "m:main"]]]));
 
     const cmd = COMMANDS[name];
-    if (!cmd) return await reply(`🤔 Unknown command <code>/${esc(name)}</code>\nTap <b>${KEYBOARD_MENU}</b> or send /help.`);
+    if (!cmd) return await reply(`🤔 <b>Unknown command</b>\n\n<code>/${esc(name)}</code>\nTap <b>${KEYBOARD_MENU}</b> or send /help.`);
 
     const args = expandPeriod(name, rawArgs);
     const inputs = cmd.inputs(args);
-    if (typeof inputs === "string") return await reply(`⚠️ ${esc(inputs)}\nUsage: <code>${esc(cmd.usage)}</code>`);
+    if (typeof inputs === "string") {
+      return await reply(`⚠️ <b>${cmd.name}</b>\n\n${esc(inputs)}\n\nExamples:\n${cmd.examples.map((e) => `<code>${e}</code>`).join("\n")}`);
+    }
 
     // Measured before dispatching, so the new run is not counted as "already running".
     const eta = await estimate(env, cmd, inputs);
@@ -318,28 +323,32 @@ async function handle(env, chatId, replyTo, text, who) {
     const res = await dispatch(env, cmd, { ...inputs, chat_id: String(chatId) });
     console.log(`dispatch ${cmd.workflow} ${JSON.stringify(inputs)} -> ${res.status}`);
     if (res.status !== 204) {
-      return await reply(`❌ <b>${cmd.label}</b>: GitHub said ${res.status}\n<code>${esc((await res.text()).slice(0, 300))}</code>`);
+      return await reply(`❌ <b>${cmd.name} did not start</b>\n\nGitHub said ${res.status}\n<code>${esc((await res.text()).slice(0, 200))}</code>`);
     }
     const what = describe(name, inputs);
     await reply([
-      `⏳ <b>${cmd.label}</b> started${who ? ` by ${esc(who)}` : ""}`,
-      what ? `📅 ${esc(what)}` : "",
+      `⏳ <b>${cmd.name} started</b>`,
+      "",
+      ...(what ? [`📅 ${esc(what)}`] : []),
       eta,
-      "<i>The report comes here when it is done.</i>",
-    ].filter(Boolean).join("\n"));
+      ...(who ? [`👤 ${esc(who)}`] : []),
+      "",
+      "<i>Report will come here.</i>",
+    ].join("\n"));
   } catch (e) {
     console.log(`handle /${name} failed: ${e.stack || e}`);
-    await reply(`❌ Error: ${esc(e.message)}`);
+    await reply(`❌ <b>Error</b>\n\n<code>${esc(e.message)}</code>`);
   }
 }
 
 function describe(name, inputs) {
-  if (inputs.today) return "today so far";
-  if (inputs.snapshot) return inputs.snapshot === "current" ? "this month" : inputs.snapshot;
-  if (inputs.dry_run) return "dry run — nothing posted";
-  if (name === "ajiospf") return "LIVE — posts on AJIO";
-  if (inputs.days) return `today + ${inputs.days} previous days`;
-  if (inputs.from) return `${inputs.from} → ${inputs.to || (name === "sale" ? "yesterday" : "today")}`;
+  const d = (s) => new Date(`${s}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
+  if (inputs.today) return "Today so far";
+  if (inputs.snapshot) return inputs.snapshot === "current" ? "This month" : inputs.snapshot;
+  if (inputs.dry_run) return "Dry run · nothing posted";
+  if (name === "ajiospf") return "LIVE · posts on AJIO";
+  if (inputs.days) return `Today + ${inputs.days} days back`;
+  if (inputs.from) return inputs.to && inputs.to !== inputs.from ? `${d(inputs.from)} → ${d(inputs.to)}` : d(inputs.from);
   return "";
 }
 
@@ -347,7 +356,6 @@ function describe(name, inputs) {
 // (command to finish, so GitHub's queue time is included), plus any run already in progress.
 async function estimate(env, cmd, inputs) {
   let minutes = cmd.minutes;
-  let basis = "usual time";
   let waiting = "";
   try {
     const res = await github(env, `/repos/${OWNER}/${REPO}/actions/workflows/${cmd.workflow}/runs?per_page=20`);
@@ -358,26 +366,23 @@ async function estimate(env, cmd, inputs) {
         .map((r) => (Date.parse(r.updated_at) - Date.parse(r.created_at)) / 60000)
         .slice(0, 15)
         .sort((a, b) => a - b);
-      if (!cmd.picture && done.length >= 3) {
-        minutes = done[Math.floor(done.length / 2)];
-        basis = `median of last ${done.length} runs`;
-      }
+      if (!cmd.picture && done.length >= 3) minutes = done[Math.floor(done.length / 2)];
       const busy = runs.filter((r) => r.status !== "completed");
       if (busy.length) {
         const ranFor = (Date.now() - Date.parse(busy[0].created_at)) / 60000;
         const left = Math.max(1, Math.ceil(minutes - ranFor));
         minutes += left;
-        waiting = `\n🚦 ${busy.length} run already in progress — this one starts after it (~${left} min)`;
+        waiting = `\n🚦 Waits ~${left} min for a run in progress`;
       }
     }
   } catch (e) {
     console.log(`estimate ${cmd.workflow} failed: ${e}`);
   }
-  if (inputs.from && inputs.to && inputs.from !== inputs.to) basis += "; several days take longer";
+  const more = inputs.from && inputs.to && inputs.from !== inputs.to ? "+" : "";
   const finish = new Date(Date.now() + minutes * 60000).toLocaleTimeString("en-IN", {
     timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit",
   });
-  return `⏱ ~${fmt(minutes)} · ready around <b>${finish}</b> <i>(${basis})</i>${waiting}`;
+  return `⏱ ~${fmt(minutes)}${more} · ready by <b>${finish}</b>${waiting}`;
 }
 
 function fmt(minutes) {
@@ -386,25 +391,25 @@ function fmt(minutes) {
 
 async function statusText(env) {
   const rows = await Promise.all(
-    Object.entries(COMMANDS).filter(([, c]) => !c.picture).map(async ([name, c]) => {
-      const auto = SCHEDULE.filter((s) => s.cmd === name).map((s) => s.ist).join(", ");
-      const autoLine = auto ? `\n    ⏰ auto ${auto}` : "";
+    Object.entries(COMMANDS).filter(([, c]) => !c.picture).map(async ([key, c]) => {
+      const head = `${c.icon} <b>${c.name}</b>`;
+      const auto = SCHEDULE.filter((s) => s.cmd === key).map((s) => `⏰ ${s.ist}`);
       const res = await github(env, `/repos/${OWNER}/${REPO}/actions/workflows/${c.workflow}/runs?per_page=1`);
-      if (!res.ok) return `${c.icon} <b>${c.label}</b>\n    ⚠️ GitHub ${res.status}`;
+      if (!res.ok) return [head, `⚠️ GitHub ${res.status}`].join("\n");
       const run = (await res.json()).workflow_runs?.[0];
-      if (!run) return `${c.icon} <b>${c.label}</b>\n    no runs yet${autoLine}`;
+      if (!run) return [head, "No runs yet", ...auto].join("\n");
       const when = new Date(run.created_at).toLocaleString("en-IN", {
-        timeZone: "Asia/Kolkata", day: "2-digit", month: "short", hour: "numeric", minute: "2-digit",
+        timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "numeric", minute: "2-digit",
       });
       const took = ((run.status === "completed" ? Date.parse(run.updated_at) : Date.now()) - Date.parse(run.created_at)) / 60000;
       const state = run.status !== "completed"
-        ? `⏳ running for ${fmt(took)}`
-        : run.conclusion === "success" ? `✅ done in ${fmt(took)}` : `❌ ${run.conclusion}`;
-      return `${c.icon} <b>${c.label}</b>\n    ${state} · ${when}${autoLine}`;
+        ? `⏳ Running · ${fmt(took)}`
+        : run.conclusion === "success" ? `✅ Done · ${fmt(took)}` : `❌ ${run.conclusion}`;
+      return [head, state, `🕒 ${when}`, ...auto].join("\n");
     })
   );
   const now = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" });
-  return [`📋 <b>Status</b> <i>(as of ${now})</i>`, "", rows.join("\n\n")].join("\n");
+  return [`📋 <b>Status</b> · ${now}`, "", rows.join("\n\n")].join("\n");
 }
 
 function esc(s) {

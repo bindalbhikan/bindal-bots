@@ -136,14 +136,27 @@ def pickup_pending_mask(df: pd.DataFrame, now: pd.Timestamp) -> pd.Series:
     return awaiting_pickup_mask(df) & (df["Dispatch Deadline"] < now)
 
 
+# Telegram on a phone shows ~28 monospace characters per line: every <pre> table stays within that.
+SHORT_COURIER = {"BLUEDART": "BluDart", "DELHIVERY": "Delhvry", "SHADOWFAX": "Shdwfax",
+                 "XPRESSBEES": "XpresBz", "EKART": "Ekart", "VALMO": "Valmo", "UNKNOWN": "?"}
+
+
+def short_courier(name) -> str:
+    key = str(name or "UNKNOWN").upper().replace(" ", "")
+    for k, v in SHORT_COURIER.items():
+        if k in key:
+            return v
+    return str(name).title()[:7]
+
+
 def _summary_block(part: pd.DataFrame, title: str, now: pd.Timestamp) -> list[str]:
     """Order count, processing on time / late / pending, and a narrow per-courier table:
     Done = picked up, Pend = pickup pending: processed but not picked and the TAT deadline has passed,
     Due = processed, not picked, deadline not reached yet, Proc = not processed."""
     proc = part["Process Status"].value_counts()
     lines = ["", f"<b>{title} · {len(part)} orders</b>",
-             f"✅ On time {proc.get('On Time', 0)}  ⏰ Late {proc.get('Late', 0)}  "
-             f"⏳ Pending {proc.get('Not Processed', 0)}"]
+             f"✅ {proc.get('On Time', 0)} on time · ⏰ {proc.get('Late', 0)} late · "
+             f"⏳ {proc.get('Not Processed', 0)} pending"]
     if part.empty:
         return lines
     rows = []
@@ -152,11 +165,11 @@ def _summary_block(part: pd.DataFrame, title: str, now: pd.Timestamp) -> list[st
         picked = g["Pickup Status"].isin(PICKED)
         waiting = ~picked & ~not_proc
         overdue = pickup_pending_mask(g, now)
-        rows.append((str(courier).title()[:10], int(picked.sum()),
+        rows.append((short_courier(courier), int(picked.sum()),
                      int(overdue.sum()), int((waiting & ~overdue).sum()), int(not_proc.sum())))
-    table = [f"{'Courier':<10} {'Done':>4} {'Pend':>4} {'Due':>4} {'Proc':>4}"]
-    table += [f"{c:<10} {d:>4} {p:>4} {x:>4} {n:>4}" for c, d, p, x, n in rows]
-    table.append(f"{'Total':<10} " + " ".join(f"{sum(r[i] for r in rows):>4}" for i in range(1, 5)))
+    table = [f"{'Courier':<8}{'Done':>5}{'Pend':>5}{'Due':>5}{'Proc':>5}"]
+    table += [f"{c:<8}{d:>5}{p:>5}{x:>5}{n:>5}" for c, d, p, x, n in rows]
+    table.append(f"{'Total':<8}" + "".join(f"{sum(r[i] for r in rows):>5}" for i in range(1, 5)))
     lines.append("<pre>" + telegram.esc("\n".join(table)) + "</pre>")
     return lines
 
@@ -168,15 +181,15 @@ def telegram_report(df):
     today = now.normalize()
     live = df[df["Pickup Status"] != "Cancelled"]
     order_day = live["Order Time"].dt.normalize()
-    lines = [f"<b>📦 AJIO Dispatch - {today:%d %b %Y}</b>"]
+    lines = [f"📦 <b>AJIO Dispatch · {today:%d %b %Y}</b>"]
     for day in (today - pd.Timedelta(days=1), today):
         lines += _summary_block(live[order_day == day], f"📅 {day:%d %b}", now)
     month_start = today.replace(day=1)
     lines += _summary_block(live[(order_day >= month_start) & (order_day <= today)],
-                            f"🗓 {today:%B} total (1-{today.day})", now)
+                            f"🗓 {today:%B} 1-{today.day}", now)
     lines += ["", "<i>Done = pickup ho gaya",
-              "Pend = Pickup Pending (pickup nahi hua, TAT nikal gaya)",
-              "Due = pickup nahi hua, TAT abhi baaki hai",
+              "Pend = pickup nahi hua, TAT nikal gaya",
+              "Due = pickup nahi hua, TAT baaki",
               "Proc = processing pending</i>"]
     return "\n".join(lines)
 
@@ -184,7 +197,8 @@ def telegram_report(df):
 def pickup_pending_messages(df, now=None) -> list[str]:
     """Second Telegram message: every processed AWB still waiting for pickup (last TRACK_DAYS days),
     TAT passed ("Over") first, then still within TAT ("Due"), with a short ready-to-copy mail
-    for the courier / AJIO. Empty list when nothing is waiting."""
+    for the courier / AJIO. The mail is plain text (wraps on a phone, pastes cleanly); only the
+    AWB list is a table. Empty list when nothing is waiting."""
     now = now or pd.Timestamp.now()
     since = now.normalize() - pd.Timedelta(days=num("TRACK_DAYS", 15))
     pend = df[awaiting_pickup_mask(df) & (df["Order Time"] >= since)].copy()
@@ -194,26 +208,26 @@ def pickup_pending_messages(df, now=None) -> list[str]:
     pend = pend.sort_values(["_over", "Courier", "RTS Time"], ascending=[False, True, True])
     n_over = int(pend["_over"].sum())
     pob = env("POB_ID", "DV00348890")
-    rows = []
-    for _, r in pend.iterrows():
-        ready = f"{r['RTS Time']:%d-%b}" if pd.notna(r["RTS Time"]) else "-"
-        tat = "Over" if r["_over"] else "Due"
-        rows.append(f"{str(r['AWB']):<16} {str(r['Courier']).title()[:10]:<10} {ready:<6} {tat}")
-    per_msg = 120  # keeps each message under Telegram's 4096-character limit
+    rows = [f"{str(r['AWB'])[:15]:<15} {short_courier(r['Courier'])[:7]:<7} {'Over' if r['_over'] else 'Due'}"
+            for _, r in pend.iterrows()]
+    per_msg = 100  # keeps each message under Telegram's 4096-character limit
     msgs = []
     for i in range(0, len(rows), per_msg):
         part = rows[i:i + per_msg]
-        head = (f"Subject: Pickup Pending - POB ID {pob} - {len(pend)} shipments\n\n"
-                "Dear Team,\n\n"
-                "Below shipments are packed and ready, but pickup is still pending.\n"
-                "Kindly arrange the pickup today on priority.\n\n"
-                f"POB ID: {pob}\n\n") if i == 0 else ""
-        tail = "\n\nRegards,\nBindal Exports" if i + per_msg >= len(rows) else ""
-        body = head + f"{'AWB':<16} {'Courier':<10} {'Ready':<6} TAT\n" + "\n".join(part) + tail
-        title = (f"<b>📮 Pickup Pending · {len(pend)} AWB</b>\n"
-                 f"Over (TAT nikal gaya) {n_over} · Due (TAT baaki) {len(pend) - n_over}\n"
-                 if i == 0 else f"<b>📮 Pickup Pending (contd. {i // per_msg + 1})</b>\n")
-        msgs.append(title + "<pre>" + telegram.esc(body) + "</pre>")
+        first, last = i == 0, i + per_msg >= len(rows)
+        head = ([f"📮 <b>Pickup Pending · {len(pend)} AWB</b>",
+                 f"🔴 Over (TAT nikal gaya) {n_over} · 🟡 Due {len(pend) - n_over}",
+                 "",
+                 f"<b>Subject:</b> Pickup Pending - POB ID {pob} - {len(pend)} shipments",
+                 "",
+                 "Dear Team,",
+                 "Below shipments are packed and ready, but pickup is still pending. "
+                 "Kindly arrange the pickup today on priority.",
+                 f"POB ID: {pob}"] if first
+                else [f"📮 <b>Pickup Pending</b> (contd. {i // per_msg + 1})"])
+        table = "<pre>" + telegram.esc(f"{'AWB':<15} {'Courier':<7} TAT\n" + "\n".join(part)) + "</pre>"
+        tail = ["Regards,", "Bindal Exports"] if last else []
+        msgs.append("\n".join(head + [table] + tail))
     return msgs
 
 
@@ -294,8 +308,9 @@ def run(args) -> int:
     (out / "errors.log").write_text("\n".join(errors), encoding="utf-8")   # emptied on a clean run
     report = telegram_report(df)
     if errors:
-        report += (f"\n\u26a0\ufe0f {len(errors)} order page / tracking lookups failed "
-                   f"(see the run's errors.log); those orders keep their last known status")
+        report += ("\n\n\u26a0\ufe0f <b>Notes</b>\n"
+                   f"\u2022 {len(errors)} order page / tracking lookups failed; those orders keep their "
+                   "last known status (list in the run's errors.log)")
     if args.no_telegram:
         print(report)
     else:

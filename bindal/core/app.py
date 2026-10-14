@@ -24,11 +24,12 @@ def run_bot(title: str, parser: argparse.ArgumentParser, run: Callable[[argparse
         return run(args)
     except Exception as exc:  # noqa: BLE001 - the whole point is to report any failure
         log.error("%s failed:\n%s", title, traceback.format_exc())
-        msg = (f"<b>❌ {telegram.esc(title)} - FAILED</b> ({telegram.esc(env('RUN_MODE', 'local'))})\n"
+        msg = (f"❌ <b>{telegram.esc(title)} failed</b>\n"
+               f"<i>{telegram.esc(env('RUN_MODE', 'local'))}</i>\n\n"
                f"<code>{telegram.esc(str(exc)[:1500])}</code>")
         extra = getattr(exc, "notes", None)
         if extra:
-            msg += "\n" + "\n".join(telegram.esc(n)[:200] for n in extra)
+            msg += "\n\n⚠️ <b>Also</b>\n" + "\n".join(f"• {telegram.esc(n)[:200]}" for n in extra)
         if args.no_telegram:
             print(msg)
         else:
