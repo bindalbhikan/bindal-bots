@@ -58,3 +58,11 @@ def test_upload_needs_a_download_first():
     drive = DriveFile("file-id", http=object())
     with pytest.raises(DriveError):
         drive.upload(__file__)
+
+
+def test_blank_setting_falls_back_to_default(monkeypatch):
+    from bindal.core.config import env
+    monkeypatch.setenv("X_SETTING", "")          # GitHub: unset repository variable
+    assert env("X_SETTING", "45111:TLPL") == "45111:TLPL"
+    monkeypatch.setenv("X_SETTING", "  1 ")
+    assert env("X_SETTING", "9") == "1"

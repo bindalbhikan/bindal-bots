@@ -49,6 +49,8 @@ def report_dates(args) -> list[date]:
 def collect(dates: list[date], awb_cache: dict[str, str]):
     """Per-order frame for the report dates, plus new order -> Myntra AWB pairs and warnings."""
     chans = channels()
+    if not chans:
+        raise RuntimeError("MYNTRA_CHANNELS has no channel id:code pairs")
     lookback = num("SLA_LOOKBACK_DAYS", 10)
     client = OmsGuruClient.from_env()
     client.login()
@@ -148,6 +150,9 @@ def run(args) -> int:
     book = VmsWorkbook(book_path)
 
     df, new_pairs, errors = collect(dates, book.awb_cache())
+    if df.empty:
+        # Never overwrite the sheet with zeros: no Myntra order at all means a listing problem.
+        raise RuntimeError(f"No Myntra orders found for SLA {dates[0]} - {dates[-1]}; workbook left unchanged")
     per_day = {d: day_counts(df, d) for d in dates}
     if not args.only_no_vms:
         for d, counts in per_day.items():

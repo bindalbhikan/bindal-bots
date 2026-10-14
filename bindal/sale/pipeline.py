@@ -189,6 +189,8 @@ def run(args) -> int:
 
     # OMSGuru: required - without it there is no report
     gross, unmapped = oms_source(days)
+    if not sum(gross.values()):
+        raise RuntimeError(f"OMSGuru returned no orders for {days[0]} - {days[-1]}; workbook left unchanged")
     for d in days:
         for block in OMS_BLOCKS:
             book.write(d, block, "GROSS", gross[(d, block)])

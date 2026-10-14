@@ -18,7 +18,9 @@ FALSE = ("0", "false", "no", "off")
 
 
 def env(name: str, default: str = "") -> str:
-    return os.getenv(name, default).strip()
+    """The setting, or `default` when it is missing or blank. GitHub passes an unset
+    repository variable as an empty string, which must not wipe out the default."""
+    return (os.getenv(name) or "").strip() or default
 
 
 def flag(name: str, default: bool = False) -> bool:
