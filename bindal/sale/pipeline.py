@@ -3,7 +3,8 @@
 What is written for each report day:
   OMS blocks (AZ/FX/FBA, MEESHO, AJIO B2C, FLIPKART, MYNTRA, NYKAA, SNAPDEAL): GROSS by order date
   FBF : GROSS and Cancel from Flipkart Seller Hub (Flipkart warehouses only)
-  SJIT: GROSS and Cancel from the Myntra Seller_Orders_Report CSV in the SJIT Drive folder;
+  SJIT: GROSS and Cancel from the Myntra Seller_Orders_Report, fetched from the partner portal
+        with a saved login session and/or dropped by hand into the SJIT Drive folder;
         when no report covers the day, SJIT is skipped (0 written only into empty cells)
 RETURN is entered by hand and never touched. A source that fails is skipped and
 reported on Telegram; the rest of the report is still written.
@@ -28,7 +29,7 @@ from .workbook import SaleWorkbook
 
 BOOK_NAME = "SALE REPORT.xlsx"
 REPORT_ORDER = ["AZ/FX/FBA", "COCOBLU", "MEESHO", "AJIO B2C", "FLIPKART", "FBF", "MYNTRA", "SJIT", "NYKAA"]
-TODAY_ORDER = [b for b in REPORT_ORDER if b != "SJIT"]  # SJIT comes from a hand-dropped report
+TODAY_ORDER = [b for b in REPORT_ORDER if b != "SJIT"]  # the SJIT report has no data for today
 SHORT = {"AZ/FX/FBA": "Amazon", "COCOBLU": "Cocoblu", "AJIO B2C": "Ajio", "FBF": "FBF", "SJIT": "SJIT"}
 log = logging.getLogger("bindal.sale")
 
@@ -63,20 +64,96 @@ def fbf_source(days):
     return fk.fbf_units(days, locations)
 
 
-def sjit_source():
-    """Myntra SJIT: the Seller_Orders_Report dropped by hand into the SJIT Drive folder.
-    (The partner portal login has a reCAPTCHA, so it is not fetched automatically.)"""
+def sjit_source(days: list[date], notes: list[str], alerts: list[str]):
+    """Myntra SJIT: the Seller_Orders_Report fetched from the partner portal with the saved
+    session (MYNTRA_SESSION_JSON), plus any report dropped by hand into the SJIT Drive folder.
+    The portal report wins for the lines it holds; every day it was requested for counts as
+    covered. Session trouble goes into `alerts` (sent on Telegram as its own message)."""
+    from . import myntra_portal as mp
     from . import sjit
+    files: list[tuple[str, bytes]] = []
+    fetched: set[date] = set()
+    portal = myntra_portal(alerts)
+    if portal and days[-1] < date.today():
+        try:
+            extra_from = days[-1] - timedelta(days=num("SJIT_FETCH_DAYS", 30) - 1)
+            files, fetched = portal.reports(days, extra_from, wait_minutes=num("SJIT_WAIT_MINUTES", 20))
+            for name, data in files:
+                (output_dir("sale") / name).write_bytes(data)
+            mp.save_to_worker(env, portal.cookies())
+        except mp.SessionExpired as exc:
+            alerts.append(f"Myntra portal session expired ({exc})")
+        except Exception as exc:  # noqa: BLE001 - the dropped reports still count
+            log.warning("SJIT portal fetch failed: %s", exc)
+            notes.append(f"SJIT portal fetch failed ({str(exc)[:80]})")
+
     folder = env("SJIT_DRIVE_FOLDER_ID")
-    if folder:
-        files = sjit.files_from_drive(folder)
-    else:
-        local = Path(env("SJIT_LOCAL_DIR") or ROOT / "sjit")
-        files = [(p.name, p.read_bytes()) for p in sorted(local.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
-                 if p.suffix.lower() in (".csv", ".zip")] if local.is_dir() else []
+    try:
+        if folder:
+            files += sjit.files_from_drive(folder)
+        else:
+            local = Path(env("SJIT_LOCAL_DIR") or ROOT / "sjit")
+            files += [(p.name, p.read_bytes()) for p in sorted(local.glob("*"), key=lambda p: p.stat().st_mtime,
+                                                               reverse=True)
+                      if p.suffix.lower() in (".csv", ".zip")] if local.is_dir() else []
+    except Exception as exc:  # noqa: BLE001
+        if not files:
+            raise
+        log.warning("SJIT drop folder not read: %s", exc)
     if not files:
         raise RuntimeError("no SJIT report file found")
-    return sjit.parse(files)
+    gross, cancel, covered = sjit.parse(files)
+    return gross, cancel, covered | fetched
+
+
+def myntra_portal(alerts: list[str]):
+    """The partner portal client with the saved session, checked; None (with the reason in
+    `alerts` when it is session trouble) when there is no working session."""
+    from . import myntra_portal as mp
+    text = mp.session_text(env, ROOT / "myntra_session.json")
+    if not text:
+        log.info("No Myntra session saved: SJIT only from dropped reports")
+        return None
+    try:
+        session = mp.parse_session(text)
+        portal = mp.MyntraPortal(session)
+        portal.check()
+    except mp.SessionExpired as exc:
+        alerts.append(f"Myntra portal session expired ({exc})")
+        return None
+    warning = mp.expiry_warning(session, num("MYNTRA_SESSION_WARN_DAYS", 3),
+                                life_days=num("MYNTRA_SESSION_LIFE_DAYS", 15))
+    if warning:
+        alerts.append(warning)
+    return portal
+
+
+def run_sjit_request(args) -> int:
+    """Morning run: ask the partner portal for the Seller_Orders_Report of the coming sale
+    run's days, so it is ready by then. Reports already there are not asked for again.
+    Telegram only hears about session trouble."""
+    from . import myntra_portal as mp
+    days = report_days(args)
+    alerts: list[str] = []
+    portal = myntra_portal(alerts)
+    if portal:
+        job = portal.request(days)
+        log.info("SJIT report %s for %s..%s", f"job {job.get('id')} requested" if job else "already on the portal",
+                 days[0], days[-1])
+        mp.save_to_worker(env, portal.cookies())
+    if alerts:
+        print(session_alert(alerts)) if args.no_telegram else telegram.send(session_alert(alerts))
+    return 0
+
+
+def session_alert(alerts: list[str]) -> str:
+    return "\n".join([
+        "🔐 <b>Myntra partner portal session</b>",
+        *(f"• {telegram.esc(a)}" for a in alerts),
+        "",
+        "Renew it: log in on the Myntra partner portal in the Chrome that has the "
+        "<b>Bindal Myntra Session</b> extension; it sends the new login to the bot by itself.",
+    ])
 
 
 # ------------------------------------------------------------------ telegram
@@ -205,6 +282,8 @@ def run(args) -> int:
         return run_snapshot(args)
     if args.today:
         return run_today(args)
+    if args.sjit_request:
+        return run_sjit_request(args)
     days = report_days(args)
     log.info("Report days: %s", ", ".join(f"{d}" for d in days))
     drive, path = open_book(args)
@@ -236,8 +315,9 @@ def run(args) -> int:
         notes.append(f"FBF skipped ({str(exc)[:80]})")
 
     # Myntra SJIT: optional, 0 into empty cells when the report is missing
+    alerts: list[str] = []
     try:
-        sg, sc, covered = sjit_source()
+        sg, sc, covered = sjit_source(days, notes, alerts)
     except Exception as exc:
         sg, sc, covered = Counter(), Counter(), set()
         log.warning("SJIT report not available: %s", exc)
@@ -249,6 +329,9 @@ def run(args) -> int:
         else:
             book.write(d, "SJIT", "GROSS", 0, only_if_empty=True)
             book.write(d, "SJIT", "CANCEL", 0, only_if_empty=True)
+    if alerts:
+        notes += alerts
+        print(session_alert(alerts)) if args.no_telegram else telegram.send(session_alert(alerts))
     if missing:
         notes.append("SJIT report not ready for " + ", ".join(f"{d:%d %b}" for d in missing) + " (taken as 0)")
 
@@ -276,6 +359,8 @@ def main(argv=None) -> int:
     p.add_argument("--to", dest="to_date", help="last day to refresh, YYYY-MM-DD (default yesterday)")
     p.add_argument("--today", action="store_true",
                    help="today so far, channel-wise, Telegram only (workbook not touched)")
+    p.add_argument("--sjit-request", action="store_true",
+                   help="only ask the Myntra partner portal for the SJIT report of the report days")
     p.add_argument("--snapshot", nargs="?", const="current", metavar="YYYY-MM",
                    help="send a picture of a month sheet to Telegram (default: yesterday's month)")
     p.add_argument("--no-drive", action="store_true", help="use SALE_XLSX_PATH instead of the Drive file")

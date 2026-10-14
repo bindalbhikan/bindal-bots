@@ -12,7 +12,7 @@ separate folders / repos: `daily-sale-report`, `myntra-vms-report`, `ajio-tat-bo
 
 | Bot | Run | What it does | Daily (IST) | Result workbook (Drive, synced here) |
 |---|---|---|---|---|
-| Sale | `python run.py sale` | OMSGuru + Flipkart FBF + Myntra SJIT, Telegram summary | 3:30 PM | `BINDAL EXPORTS\DAILY SALE REPORT BINDAL\SALE REPORT.xlsx` |
+| Sale | `python run.py sale` | OMSGuru + Flipkart FBF + Myntra SJIT, Telegram summary | 3:30 PM (+ 9:00 AM SJIT request) | `BINDAL EXPORTS\DAILY SALE REPORT BINDAL\SALE REPORT.xlsx` |
 | VMS | `python run.py vms` | Every Myntra order has a VMS packing video? | 5:30 PM | `BINDAL EXPORTS\VMS\MYNTRA ORDER ID WISE VMS.xlsx` |
 | AJIO TAT | `python run.py ajio-tat` | AJIO dispatch TAT (the 10:10 rule) | 5:30 PM | `AJIO_TAT_MASTER.xlsx` |
 | AJIO SPF | `python run.py ajio-spf` | SPF claims: raise tickets + Gemini-drafted follow-ups | 11:30 AM Wed + Sat | `BINDAL EXPORTS\SPF\AJIO\AJIO MASTER.xlsx` |
@@ -85,9 +85,15 @@ XpressBees). One package per bot: `bindal/sale`, `vms`, `ajio_tat`, `ajio_spf`.
 - A run whose source returns no orders at all stops without touching the workbook.
 - SPF: per-run caps; any failed source turns the run into a dry run; a failed "ticket already
   exists?" check stops that ticket instead of raising a duplicate.
-- Myntra SJIT is not fetched automatically (the partner portal login has a reCAPTCHA; bypassing
-  it is out of scope). The `Seller_Orders_Report` CSV is dropped by hand into the `sjit` Drive
-  folder; missing days count as 0 and only fill empty cells.
+- Myntra SJIT: the partner portal login has a reCAPTCHA (never bypassed). The bot reuses the
+  login made by hand in Chrome: the `myntra-extension/` Chrome extension sends it to the
+  Telegram worker (KV `myntra_session`) whenever it changes (fallback: secret
+  `MYNTRA_SESSION_JSON` via `scripts/myntra_session.py`). Reports already on the portal are
+  used first; only uncovered days get a new `Seller_Orders_Report` (the run waits for it). A
+  9:00 AM run (`sale --sjit-request`, worker cron) asks for the report days early. Renewed
+  cookies are saved back to the worker after each run. Telegram alert when the session is
+  expired or expires within 3 days. A CSV dropped into the `sjit` Drive folder still counts;
+  days no report covers count as 0 and only fill empty cells.
 - Courier tracking: a courier with no record of an AWB (not handed over yet, or older than the
   courier keeps — Delhivery forgets after ~2-3 months) is "not found", not an error; the SPF bot
   then uses AJIO's own 3PL status.

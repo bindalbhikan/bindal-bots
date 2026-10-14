@@ -1,5 +1,8 @@
 # secrets
 .env
+myntra_session.json
+myntra_cookie.txt
+netcap-*.json
 service_account.json
 *.json.key
 # run output and business data (data stays on Google Drive, never in git)

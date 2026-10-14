@@ -14,6 +14,9 @@ on:
       today:
         description: "1 = today so far, channel-wise, Telegram only (workbook not touched)"
         default: ""
+      sjit_request:
+        description: "1 = only ask the Myntra portal for the SJIT report (morning run)"
+        default: ""
       snapshot:
         description: "Picture of a month sheet instead of the report (current or YYYY-MM)"
         default: ""
@@ -38,6 +41,7 @@ jobs:
       FLIPKART_EMAIL: ${{ secrets.FLIPKART_EMAIL }}
       FLIPKART_PASSWORD: ${{ secrets.FLIPKART_PASSWORD }}
       SJIT_DRIVE_FOLDER_ID: ${{ secrets.SJIT_DRIVE_FOLDER_ID }}
+      MYNTRA_SESSION_JSON: ${{ secrets.MYNTRA_SESSION_JSON }}
       SALE_DRIVE_FILE_ID: ${{ secrets.SALE_DRIVE_FILE_ID }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -46,11 +50,15 @@ jobs:
       TELEGRAM_CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
       FBF_LOCATIONS: ${{ vars.FBF_LOCATIONS }}
       SALE_REPORT_DAYS: ${{ vars.SALE_REPORT_DAYS }}
+      SJIT_FETCH_DAYS: ${{ vars.SJIT_FETCH_DAYS }}
+      SJIT_WAIT_MINUTES: ${{ vars.SJIT_WAIT_MINUTES }}
+      MYNTRA_SESSION_WARN_DAYS: ${{ vars.MYNTRA_SESSION_WARN_DAYS }}
       # inputs reach the shell only as variables, never pasted into the script
       IN_FROM: ${{ inputs.from }}
       IN_TO: ${{ inputs.to }}
       IN_TODAY: ${{ inputs.today }}
       IN_SNAPSHOT: ${{ inputs.snapshot }}
+      IN_SJIT_REQUEST: ${{ inputs.sjit_request }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -60,6 +68,8 @@ jobs:
         run: |
           if [ -n "$IN_SNAPSHOT" ]; then
             python run.py sale --snapshot "$IN_SNAPSHOT"
+          elif [ -n "$IN_SJIT_REQUEST" ]; then
+            python run.py sale --sjit-request
           elif [ -n "$IN_TODAY" ]; then
             python run.py sale --today
           elif [ -n "$IN_FROM" ]; then

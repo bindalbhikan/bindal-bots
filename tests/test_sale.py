@@ -82,3 +82,73 @@ def test_move_blocks_adds_cocoblu_after_amazon_and_drops_snapdeal(tmp_path):
     assert book.read(date(2026, 10, 3), "MEESHO", "RETURN") == 1
     assert book.wb["OCT-26"].cell(3, 18).value == "Target"
     assert book.has_block(date(2026, 10, 3), "COCOBLU")
+
+
+# ---- Myntra partner portal (saved session)
+
+from datetime import datetime  # noqa: E402
+
+from bindal.sale import myntra_portal as mp  # noqa: E402
+
+
+def test_session_expiry_ignores_bot_manager_cookies():
+    s = mp.parse_session('{"savedAt": "2026-10-14T20:00:00", "cookies": ['
+                         '{"name": "ak_bmsc", "value": "x", "domain": ".myntrainfo.com", "expires": 1, "httpOnly": true},'
+                         '{"name": "sid", "value": "y", "domain": ".myntrainfo.com", "expires": 1800000000, "httpOnly": true},'
+                         '{"name": "other", "value": "z", "domain": ".example.com", "expires": 2, "httpOnly": true}]}')
+    assert [c["name"] for c in s.cookies] == ["ak_bmsc", "sid"]
+    assert s.expires() == datetime.fromtimestamp(1800000000)
+    assert mp.expiry_warning(s, 3, now=datetime.fromtimestamp(1800000000 - 86400)).endswith("in 1 day(s))")
+    assert mp.expiry_warning(s, 3, now=datetime.fromtimestamp(1800000000 - 10 * 86400)) == ""
+
+
+def test_session_from_cookie_header_and_curl():
+    assert [c["name"] for c in mp.parse_session("a=1; b=2=3").cookies] == ["a", "b"]
+    curl = "curl 'https://partnersapi.myntrainfo.com/x' -H 'accept: */*' -b 'sid=abc; at=def' -H 'x: y'"
+    cookies = mp.parse_session(curl).cookies
+    assert [(c["name"], c["value"]) for c in cookies] == [("sid", "abc"), ("at", "def")]
+    assert mp.parse_session('{"cookie": "sid=1"}').expires() is None
+
+
+def _job(id, start, end, created, status="COMPLETED", report=4, store="2297"):
+    return {"id": id, "reportId": report, "status": status, "createdOn": int(created.timestamp() * 1000),
+            "queryParams": {"storeId": store, "partnerType": "PPMP",
+                            "reportStartDate": start, "reportEndDate": end}}
+
+
+def test_plan_reuses_existing_reports_and_names_missing_days():
+    d = lambda n: date(2026, 10, n)  # noqa: E731
+    jobs = [_job(1, "2026-10-01", "2026-10-11", datetime(2026, 10, 12, 17)),
+            _job(2, "2026-10-12", "2026-10-13", datetime(2026, 10, 14, 22)),
+            _job(3, "2026-10-13", "2026-10-13", datetime(2026, 10, 13, 9)),             # end day not over
+            _job(4, "2026-10-11", "2026-10-12", datetime(2026, 10, 14, 10), "FAILED"),
+            _job(5, "2026-10-12", "2026-10-13", datetime(2026, 10, 14, 23), report=7),  # another report
+            _job(6, "2026-10-14", "2026-10-14", datetime(2026, 10, 15, 9), "CREATED")]
+    for j in jobs:
+        j["successFile"] = "x" if j["status"] == "COMPLETED" else None
+    done, running, missing = mp.plan(jobs, [d(11), d(12), d(13), d(14), d(15)])
+    assert [j["id"] for j in done] == [2, 1]
+    assert [j["id"] for j in running] == [6]
+    assert missing == [d(15)]
+    assert mp.plan(jobs, [d(12), d(13)])[0][0]["id"] == 2
+
+
+def test_session_from_network_capture():
+    cap = {"exportedAt": "2026-10-14T17:27:00.117Z", "requests": [
+        {"url": "https://partnersapi.myntrainfo.com/api/x", "request": {"headers": {"Cookie": "sid=1; at=2"}}},
+        {"url": "https://partners.myntrainfo.com/", "type": "deep-scan",
+         "findings": [{"source": "cookie", "key": "bm_sv", "value": "v"}, {"source": "cookie", "key": "sid", "value": "0"}]},
+        {"url": "https://example.com/", "request": {"headers": {"cookie": "other=1"}}}]}
+    import json
+    s = mp.parse_session(json.dumps(cap))
+    assert {c["name"]: c["value"] for c in s.cookies} == {"sid": "1", "at": "2", "bm_sv": "v"}
+    assert s.saved_at is not None
+    assert "about 15 days" in mp.expiry_warning(s, 3, now=s.saved_at + __import__("datetime").timedelta(days=13))
+
+
+def test_session_from_chrome_extension():
+    s = mp.parse_session('{"savedAt": "2026-10-14T18:00:00.000Z", "expiresAt": null, "cookies": ['
+                         '{"name": "sid", "value": "1", "domain": "partners.myntrainfo.com", "expires": 1800000000,'
+                         ' "httpOnly": true}]}')
+    assert s.saved_at is not None and s.saved_at.tzinfo is None
+    assert s.expires() == datetime.fromtimestamp(1800000000)

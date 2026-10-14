@@ -8,8 +8,9 @@ order line. Rules (unchanged from the original main.py):
   * GROSS  = order lines by "created on" date
   * Cancel = lines with order status F, by "cancelled on" date
 
-The report is not fetched automatically: the partner portal login has a
-reCAPTCHA. It is dropped by hand into the SJIT Drive folder (SJIT_DRIVE_FOLDER_ID).
+The partner portal login has a reCAPTCHA, so the bot fetches the report with a
+saved login session (myntra_portal.py); a report dropped by hand into the SJIT
+Drive folder (SJIT_DRIVE_FOLDER_ID) is still read as well.
 """
 from __future__ import annotations
 

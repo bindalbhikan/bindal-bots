@@ -90,6 +90,8 @@ function monthArg(args) {
 // below must also be listed under [triggers] in wrangler.toml. GitHub's own `schedule:`
 // is not used: it skipped runs.
 const SCHEDULE = [
+  // asks the Myntra partner portal for the SJIT report, so it is ready for the 3:30 PM run
+  { ist: "9:00 AM daily", cron: "30 3 * * *", cmd: "sale", label: "SJIT report request", inputs: { sjit_request: "1" } },
   { ist: "11:30 AM Wed, Sat", cron: "0 6 * * WED,SAT", cmd: "ajiospf" },
   { ist: "3:30 PM daily", cron: "0 10 * * *", cmd: "sale" },
   { ist: "5:30 PM daily", cron: "0 12 * * *", cmd: "vms" },
@@ -184,7 +186,7 @@ function helpText() {
     "<code>/dashboard</code> — sign-in link, valid 10 min",
     "",
     "⏰ <b>Auto runs (IST)</b>",
-    ...SCHEDULE.map((s) => `• ${COMMANDS[s.cmd].name}: ${s.ist}`),
+    ...SCHEDULE.map((s) => `• ${s.label || COMMANDS[s.cmd].name}: ${s.ist}`),
   ].join("\n");
 }
 
@@ -198,6 +200,8 @@ export default {
     if (request.method !== "POST") return new Response("ok");
     const path = new URL(request.url).pathname;
     if (path.startsWith("/api/push/")) return pushDashboard(request, env, path.slice("/api/push/".length));
+    if (path === "/api/myntra-session") return saveMyntraSession(request, env);
+    if (path === "/api/myntra-session/read") return readMyntraSession(request, env);
     if (request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.WEBHOOK_SECRET) {
       return new Response("forbidden", { status: 403 });
     }
@@ -240,14 +244,14 @@ export default {
         due.map(async (s) => {
           const cmd = COMMANDS[s.cmd];
           try {
-            const res = await dispatch(env, cmd, {});
+            const res = await dispatch(env, cmd, s.inputs || {});
             console.log(`cron ${event.cron} -> ${cmd.workflow} ${res.status}`);
             if (res.status !== 204) throw new Error(`GitHub said ${res.status}: ${(await res.text()).slice(0, 200)}`);
           } catch (e) {
             console.log(`cron ${s.cmd} failed: ${e.stack || e}`);
             const chat = String(env.ALLOWED_CHAT_IDS || "").split(",")[0].trim();
             if (chat) {
-              await sendMessage(env, chat, `❌ <b>${cmd.name} did not start</b>\n<i>auto run, ${s.ist}</i>\n\n<code>${esc(e.message)}</code>`);
+              await sendMessage(env, chat, `❌ <b>${s.label || cmd.name} did not start</b>\n<i>auto run, ${s.ist}</i>\n\n<code>${esc(e.message)}</code>`);
             }
           }
         })
@@ -273,6 +277,44 @@ async function pushDashboard(request, env, key) {
   }
   await env.DASH.put(key, body);
   return new Response("stored");
+}
+
+// Myntra partner portal login cookies, sent by the Chrome extension (myntra-extension/) whenever
+// the login changes, read by the sale bot. Same DASHBOARD_TOKEN; kept in KV under a key the
+// dashboard never reads. A changed login is announced on Telegram.
+const MYNTRA_KEY = "myntra_session";
+
+function authorised(request, env) {
+  const token = env.DASHBOARD_TOKEN || "";
+  return token && request.headers.get("Authorization") === `Bearer ${token}`;
+}
+
+async function saveMyntraSession(request, env) {
+  if (!authorised(request, env)) return new Response("forbidden", { status: 403 });
+  const body = await request.text();
+  if (body.length > 100_000) return new Response("too large", { status: 413 });
+  let data;
+  try {
+    data = JSON.parse(body);
+  } catch {
+    return new Response("not JSON", { status: 400 });
+  }
+  if (!Array.isArray(data.cookies) || !data.cookies.length) return new Response("no cookies", { status: 400 });
+  await env.DASH.put(MYNTRA_KEY, body);
+  const chat = String(env.ALLOWED_CHAT_IDS || "").split(",")[0].trim();
+  if (chat && data.source !== "bot") {   // the bot saving renewed cookies after a run stays quiet
+    const ends = data.expiresAt ? new Date(data.expiresAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata",
+      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "not given";
+    await sendMessage(env, chat, `🔐 <b>Myntra session saved</b>\n<i>from the Chrome extension</i>\n\n` +
+      `Cookies: ${data.cookies.length}\nLogin expires: ${esc(ends)}`);
+  }
+  return new Response("stored");
+}
+
+async function readMyntraSession(request, env) {
+  if (!authorised(request, env)) return new Response("forbidden", { status: 403 });
+  const body = await env.DASH.get(MYNTRA_KEY);
+  return body ? new Response(body, { headers: { "Content-Type": "application/json" } }) : new Response("none", { status: 404 });
 }
 
 // Dashboard sign-in: a link carrying a token signed with SESSION_KEY (shared with the dashboard
