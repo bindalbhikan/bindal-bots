@@ -17,7 +17,7 @@ from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from ..core import telegram
+from ..core import dashboard, telegram
 from ..core.app import run_bot
 from ..core.config import ROOT, csv_list, env, num, output_dir
 from ..core.drive import DriveFile
@@ -120,6 +120,21 @@ def today_report(counts: dict[str, int], cancels: dict[str, int], notes: list[st
     ])
 
 
+def dashboard_data(book: SaleWorkbook, day: date, notes: list[str]) -> dict:
+    """Day-wise GROSS / Cancel per channel for the report day's month and the month before."""
+    first = day.replace(day=1)
+    prev = (first - timedelta(days=1)).replace(day=1)
+    days = []
+    for d in (prev + timedelta(days=i) for i in range((day - prev).days + 1)):
+        try:
+            gross = {SHORT.get(b, b.title()): book.read(d, b, "GROSS") for b in REPORT_ORDER}
+            cancel = {SHORT.get(b, b.title()): book.read(d, b, "CANCEL") for b in REPORT_ORDER}
+        except Exception:   # noqa: BLE001 - a month without a sheet is just left out
+            continue
+        days.append({"date": d, "gross": gross, "cancel": cancel})
+    return {"day": day, "channels": [SHORT.get(b, b.title()) for b in REPORT_ORDER], "days": days, "notes": notes}
+
+
 def run_today(args) -> int:
     """Today so far, channel-wise, Telegram only - the workbook is not touched."""
     today = date.today()
@@ -138,6 +153,9 @@ def run_today(args) -> int:
     log.info("Today's GROSS: %s", counts)
     text = today_report(counts, cancels, notes)
     print(text) if args.no_telegram else telegram.send(text)
+    dashboard.publish("sale_today", {"at": datetime.now(), "notes": notes,
+                                     "gross": {SHORT.get(b, b.title()): counts.get(b, 0) for b in TODAY_ORDER},
+                                     "cancel": {SHORT.get(b, b.title()): cancels.get(b, 0) for b in TODAY_ORDER}})
     return 0
 
 
@@ -238,8 +256,10 @@ def run(args) -> int:
         drive.upload(path)
     log.info("Sale report saved (%s)", "Drive" if drive else path)
 
-    text = telegram_report(SaleWorkbook(path), days[-1], notes)
+    saved = SaleWorkbook(path)
+    text = telegram_report(saved, days[-1], notes)
     print(text) if args.no_telegram else telegram.send(text)
+    dashboard.publish("sale", dashboard_data(saved, days[-1], notes))
     for n in notes:
         log.warning(n)
     return 0
@@ -257,4 +277,4 @@ def main(argv=None) -> int:
                    help="send a picture of a month sheet to Telegram (default: yesterday's month)")
     p.add_argument("--no-drive", action="store_true", help="use SALE_XLSX_PATH instead of the Drive file")
     p.add_argument("--no-telegram", action="store_true", help="do not send the Telegram message")
-    return run_bot("Daily Sale report", p, run, argv)
+    return run_bot("Daily Sale report", p, run, argv, key="sale")

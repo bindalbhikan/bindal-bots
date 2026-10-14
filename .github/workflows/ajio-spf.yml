@@ -41,6 +41,8 @@ jobs:
       SPF_MANUAL_DRIVE_FILE_ID: ${{ secrets.SPF_MANUAL_DRIVE_FILE_ID }}
       SPF_OMS_DRIVE_FILE_ID: ${{ secrets.SPF_OMS_DRIVE_FILE_ID }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
     steps:
       - uses: actions/checkout@v4

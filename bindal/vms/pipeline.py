@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..core import telegram
+from ..core import dashboard, telegram
 from ..core.app import run_bot
 from ..core.config import env, num, output_dir
 from ..core.drive import DriveFile
@@ -184,6 +184,15 @@ def run(args) -> int:
         print(text)
     else:
         telegram.send(text)
+    saved, last = VmsWorkbook(book_path), dates[-1]
+    prev = (last.replace(day=1) - timedelta(days=1))
+    dashboard.publish("vms", {
+        "day": last, "codes": CODES,
+        "days": saved.month_days(prev.year, prev.month) + saved.month_days(last.year, last.month),
+        "no_vms": [{"date": t.date(), "code": c, "awb": a} for t, c, a in
+                   zip(missing["SLA Date"], missing["Code"], missing["Myntra AWB"])][-400:],
+        "label_errors": len(errors),
+    })
     return 0
 
 
@@ -199,4 +208,4 @@ def main(argv=None) -> int:
                    help="send a picture of a month sheet to Telegram (default: this month)")
     p.add_argument("--no-drive", action="store_true", help="use the local workbook instead of the Drive file")
     p.add_argument("--no-telegram", action="store_true", help="do not send the Telegram message")
-    return run_bot("Myntra VMS report", p, run, argv)
+    return run_bot("Myntra VMS report", p, run, argv, key="vms")

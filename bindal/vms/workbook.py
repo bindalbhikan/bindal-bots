@@ -167,6 +167,21 @@ class VmsWorkbook:
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = f"A1:D{max(len(all_rows) + 1, 2)}"
 
+    def month_days(self, year: int, month: int) -> list[dict]:
+        """[{date, codes: {code: [orders, vms]}}] for every filled day of a month sheet."""
+        ws = next((w for w in self.wb.worksheets if sheet_month(w.title) == (year, month)), None)
+        out = []
+        for r in range(FIRST_ROW, (ws.max_row + 1) if ws is not None else FIRST_ROW):
+            v = ws.cell(r, 1).value
+            d = v.date() if hasattr(v, "date") else v
+            if not isinstance(d, date):
+                continue
+            codes = {c: [_as_int(ws.cell(r, GROUP_COL[c]).value), _as_int(ws.cell(r, GROUP_COL[c] + 1).value)]
+                     for c in CODES}
+            if any(o for o, _ in codes.values()):
+                out.append({"date": d, "codes": codes})
+        return out
+
     def month_totals(self, upto: date) -> dict[str, tuple[int, int]]:
         """Month-to-date (order count, vms count) per code, summed from the month sheet."""
         ws = self.month_sheet(upto.year, upto.month)

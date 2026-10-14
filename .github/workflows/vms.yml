@@ -36,6 +36,8 @@ jobs:
       VMS_DRIVE_FILE_ID: ${{ secrets.VMS_DRIVE_FILE_ID }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
       MYNTRA_CHANNELS: ${{ vars.MYNTRA_CHANNELS }}
       SLA_LOOKBACK_DAYS: ${{ vars.SLA_LOOKBACK_DAYS }}

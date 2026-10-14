@@ -27,7 +27,7 @@ import traceback
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from ..core import telegram
+from ..core import dashboard, telegram
 from ..core.app import run_bot
 from ..core.config import env, flag, num, output_dir
 from . import claims, followup, inputs
@@ -470,6 +470,32 @@ def summary(rows, raised, replies, soon, ctx, dry, today) -> str:
     return "\n".join(lines)
 
 
+def dashboard_data(rows, raised, replies, soon, ctx, dry, today) -> dict:
+    """Open returns by age and value, what this run raised / replied, courier pickup counts."""
+    ages = {"0-30": [0, 0.0], "31-60": [0, 0.0], "61-90": [0, 0.0], "90+": [0, 0.0]}
+    with_ticket = 0
+    for r in rows:
+        if claims.is_received(r) or claims.is_cancelled(r):
+            continue
+        created = claims.as_date(r.get("Return Created Date"))
+        if not created:
+            continue
+        age = (today - created).days
+        bucket = "0-30" if age <= 30 else "31-60" if age <= 60 else "61-90" if age <= 90 else "90+"
+        ages[bucket][0] += 1
+        ages[bucket][1] += claims.amount(r.get("FWD B2B Invoice Amt"))
+        with_ticket += claims.has_ticket(r)
+    pending = sum(1 for r in rows if not claims.is_received(r))
+    return {
+        "date": today, "dry": dry, "returns": len(rows), "received": len(rows) - pending, "open": pending,
+        "open_by_age": [{"age": k, "count": v[0], "value": round(v[1])} for k, v in ages.items()],
+        "open_with_ticket": with_ticket, "soon": soon, "pickup": ctx.get("pickup") or {},
+        "raised": [{k: r.get(k) for k in ("return_order", "type", "reason", "amount", "ticket", "result")} for r in raised][:200],
+        "replies": [{k: r.get(k) for k in ("ticket", "return_order", "status", "reopen", "why", "result")} for r in replies][:200],
+        "errors": ctx["errors"],
+    }
+
+
 def actions_file(raised, replies, today) -> Path:
     path = OUTPUT / f"SPF_ACTIONS_{today:%Y-%m-%d}.xlsx"
     raise_cols = ["return_order", "pob", "type", "reason", "awb", "invoice", "amount", "sku", "ticket", "result"]
@@ -536,6 +562,7 @@ def run(args) -> int:
             telegram.send(text)
             if raised or replies:
                 telegram.send_document(path, f"AJIO SPF actions {today:%d-%m-%Y}")
+        dashboard.publish("ajio_spf", dashboard_data(rows, raised, replies, soon, ctx, act_dry, today))
         return 1 if upload_failed else 0
     except Exception as exc:
         # Tickets / replies already posted are never lost: their list still goes out.
@@ -555,4 +582,4 @@ def main(argv=None) -> int:
     p.add_argument("--dry-run", choices=("0", "1"), default=None, help="override SPF_DRY_RUN")
     p.add_argument("--no-upload", action="store_true", help="build locally, do not write the master to Drive")
     p.add_argument("--no-telegram", action="store_true", help="do not send the Telegram message")
-    return run_bot("AJIO SPF run", p, run, argv)
+    return run_bot("AJIO SPF run", p, run, argv, key="ajio_spf")

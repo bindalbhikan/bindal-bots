@@ -29,6 +29,8 @@ jobs:
       TAT_GOOGLE_SHEET_ID: ${{ secrets.TAT_GOOGLE_SHEET_ID }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
       SHADOWFAX_TOKEN: ${{ secrets.SHADOWFAX_TOKEN }}
       AJIO_CHANNEL_IDS: ${{ vars.AJIO_CHANNEL_IDS }}

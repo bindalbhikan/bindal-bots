@@ -13,3 +13,9 @@ crons = ["0 6 * * WED,SAT", "0 10 * * *", "0 12 * * *"]
 [vars]
 # Extra Telegram users allowed to send commands (comma-separated chat ids, from DMs with the bot).
 EXTRA_CHAT_IDS = "632091833"  # Vipul
+
+# Latest numbers of each bot for the dashboard (worker/../dashboard reads the same namespace).
+# The bots POST them to /api/push/<key> with the DASHBOARD_TOKEN secret.
+[[kv_namespaces]]
+binding = "DASH"
+id = "67db94fc82af438496705a09419c2ac3"

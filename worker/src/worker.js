@@ -191,6 +191,8 @@ function allowedChat(env, chatId) {
 export default {
   async fetch(request, env, ctx) {
     if (request.method !== "POST") return new Response("ok");
+    const path = new URL(request.url).pathname;
+    if (path.startsWith("/api/push/")) return pushDashboard(request, env, path.slice("/api/push/".length));
     if (request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.WEBHOOK_SECRET) {
       return new Response("forbidden", { status: 403 });
     }
@@ -248,6 +250,25 @@ export default {
     );
   },
 };
+
+// The bots' latest numbers for the dashboard, stored in KV under their key.
+const DASH_KEYS = new Set(["sale", "sale_today", "vms", "ajio_tat", "ajio_spf",
+                           "run_sale", "run_vms", "run_ajio_tat", "run_ajio_spf"]);
+
+async function pushDashboard(request, env, key) {
+  const token = env.DASHBOARD_TOKEN || "";
+  if (!token || request.headers.get("Authorization") !== `Bearer ${token}`) return new Response("forbidden", { status: 403 });
+  if (!DASH_KEYS.has(key)) return new Response("unknown key", { status: 404 });
+  const body = await request.text();
+  if (body.length > 1_000_000) return new Response("too large", { status: 413 });
+  try {
+    JSON.parse(body);
+  } catch {
+    return new Response("not JSON", { status: 400 });
+  }
+  await env.DASH.put(key, body);
+  return new Response("stored");
+}
 
 function dispatch(env, cmd, inputs) {
   return github(env, `/repos/${OWNER}/${REPO}/actions/workflows/${cmd.workflow}/dispatches`, {

@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..awb_tracker import CourierRegistry, Job, track_all
-from ..core import telegram
+from ..core import dashboard, telegram
 from ..core.app import run_bot
 from ..core.config import ROOT, csv_list, env, num, output_dir
 from ..core.omsguru import OmsGuruClient
@@ -231,6 +231,39 @@ def pickup_pending_messages(df, now=None) -> list[str]:
     return msgs
 
 
+def dashboard_data(df: pd.DataFrame) -> dict:
+    """Day-wise TAT for the last 45 order days, the month's courier table, and every AWB
+    still waiting for pickup."""
+    now = pd.Timestamp.now()
+    live = df[df["Pickup Status"] != "Cancelled"].copy()
+    live["_day"] = live["Order Time"].dt.normalize()
+    days = []
+    for day, g in live[live["_day"] >= now.normalize() - pd.Timedelta(days=44)].groupby("_day"):
+        proc, res = g["Process Status"].value_counts(), g["TAT Result"].value_counts()
+        days.append({"date": day.date(), "orders": len(g),
+                     "on_time": int(proc.get("On Time", 0)), "late": int(proc.get("Late", 0)),
+                     "not_processed": int(proc.get("Not Processed", 0)),
+                     "picked": int(g["Pickup Status"].isin(PICKED).sum()),
+                     "pickup_overdue": int(pickup_pending_mask(g, now).sum()),
+                     "correct": int(res.get("CORRECT", 0)), "not_correct": int(res.get("NOT CORRECT", 0)),
+                     "pending": int(res.get("PENDING", 0))})
+    month = live[live["_day"] >= now.normalize().replace(day=1)]
+    couriers = []
+    for courier, g in month.groupby(month["Courier"].fillna("UNKNOWN")):
+        not_proc = g["Process Status"] == "Not Processed"
+        picked = g["Pickup Status"].isin(PICKED)
+        overdue = pickup_pending_mask(g, now)
+        couriers.append({"courier": short_courier(courier), "orders": len(g), "done": int(picked.sum()),
+                         "pend": int(overdue.sum()), "due": int((~picked & ~not_proc & ~overdue).sum()),
+                         "proc": int(not_proc.sum())})
+    since = now.normalize() - pd.Timedelta(days=num("TRACK_DAYS", 15))
+    pend = df[awaiting_pickup_mask(df) & (df["Order Time"] >= since)].sort_values("Order Time")
+    pickup = [{"awb": str(r["AWB"]), "courier": short_courier(r["Courier"]), "over": bool(r["Dispatch Deadline"] < now),
+               "order_time": r["Order Time"], "ready": r["RTS Time"] if pd.notna(r["RTS Time"]) else None}
+              for _, r in pend.iterrows()][:500]
+    return {"at": now, "days": days, "couriers": couriers, "pickup_pending": pickup}
+
+
 # ------------------------------------------------------------------ main
 
 def run(args) -> int:
@@ -317,6 +350,7 @@ def run(args) -> int:
         telegram.send(report)
         for msg in pickup_pending_messages(df):
             telegram.send(msg)
+    dashboard.publish("ajio_tat", {**dashboard_data(df), "lookup_errors": len(errors)})
     print(df["TAT Result"].value_counts().to_string())
     return 0
 
@@ -356,4 +390,4 @@ def main(argv=None) -> int:
     p.add_argument("--no-telegram", action="store_true", help="do not send the Telegram message")
     p.add_argument("--seed-xlsx", help="one-time: load an existing AJIO_TAT_MASTER.xlsx into the master")
     p.add_argument("--probe", action="store_true", help="test OMSGuru login + listing only")
-    return run_bot("AJIO Dispatch TAT report", p, lambda a: probe(a) if a.probe else run(a), argv)
+    return run_bot("AJIO Dispatch TAT report", p, lambda a: probe(a) if a.probe else run(a), argv, key="ajio_tat")

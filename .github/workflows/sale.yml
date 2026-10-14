@@ -41,6 +41,8 @@ jobs:
       SALE_DRIVE_FILE_ID: ${{ secrets.SALE_DRIVE_FILE_ID }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
       FBF_LOCATIONS: ${{ vars.FBF_LOCATIONS }}
       SALE_REPORT_DAYS: ${{ vars.SALE_REPORT_DAYS }}
