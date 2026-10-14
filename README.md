@@ -55,7 +55,7 @@ scripts/                   local runs
   start the daily runs, Telegram commands start on-demand runs, and the chat that sent the
   command gets that run's report.
 - Commands: `/sale [today|from to]`, `/vms [from to]`, `/ajiotat [days]`, `/ajiospf [dry]`,
-  `/salepic [YYYY-MM]`, `/vmspic [YYYY-MM]`, `/status`, `/help`.
+  `/salepic [YYYY-MM]`, `/vmspic [YYYY-MM]`, `/menu`, `/status`, `/help`.
 - Workbooks live on **Google Drive** (service account
   `ajio-tat-bot@storied-port-441507-k7.iam.gserviceaccount.com`, Editor). A run downloads the
   file, works on it, and uploads it in place only if nobody changed it on Drive meanwhile.

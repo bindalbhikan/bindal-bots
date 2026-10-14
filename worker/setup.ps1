@@ -60,6 +60,7 @@ $hook = Invoke-RestMethod -Method Post -Uri "$api/setWebhook" -ContentType "appl
 Write-Host "  setWebhook: $($hook.description)"
 
 $commands = @(
+    @{ command = "menu";    description = "Buttons for every report" },
     @{ command = "sale";    description = "Daily sale report (optional: from to dates)" },
     @{ command = "vms";     description = "Myntra VMS report (optional: from to dates)" },
     @{ command = "ajiotat"; description = "AJIO TAT update (optional: days)" },

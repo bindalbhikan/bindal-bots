@@ -13,8 +13,12 @@ only scheduler of the daily runs (cron triggers in `wrangler.toml`, times in `SC
 | `/ajiospf [dry]` | `ajio-spf.yml` (dry = only list what would be raised / replied) |
 | `/salepic [YYYY-MM]` | `sale.yml` - picture of the month sheet |
 | `/vmspic [YYYY-MM]` | `vms.yml` - picture of the month sheet |
-| `/status` | last run of each |
+| `/menu` | buttons for every report (AJIO SPF LIVE asks to confirm first) |
+| `/status` | last run of each: result, how long it took, next auto run |
 | `/help` | command list |
+
+After a command the bot replies with the expected run time: the median of that workflow's
+last runs on GitHub (queue included), plus the wait for a run already in progress.
 
 Dates are `YYYY-MM-DD`. Only chats in `ALLOWED_CHAT_IDS` (secret) + `EXTRA_CHAT_IDS`
 (`wrangler.toml`) are obeyed; the webhook also checks Telegram's secret header.

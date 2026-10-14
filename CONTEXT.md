@@ -28,8 +28,9 @@ Drive keeps the old versions). It refuses to upload when someone changed the fil
 - **Cloudflare Worker** `bindal-telegram-bot` (`worker/`) is the only scheduler: cron triggers in
   `worker/wrangler.toml` start the daily runs; Telegram commands start on-demand runs and the
   chat that asked gets the report. Commands: `/sale [today|from to]`, `/vms [from to]`,
-  `/ajiotat [days]`, `/ajiospf [dry]`, `/salepic [YYYY-MM]`, `/vmspic [YYYY-MM]`, `/status`,
-  `/help`. Only `ALLOWED_CHAT_IDS` + `EXTRA_CHAT_IDS` are obeyed.
+  `/ajiotat [days]`, `/ajiospf [dry]`, `/salepic [YYYY-MM]`, `/vmspic [YYYY-MM]`, `/menu`
+  (buttons), `/status`, `/help`. The "started" reply gives the expected run time, measured from
+  the workflow's recent runs (usual: sale ~1 min, VMS / TAT ~2 min, SPF ~13 min). Only `ALLOWED_CHAT_IDS` + `EXTRA_CHAT_IDS` are obeyed.
 - After changing `worker/`: `cd worker && npx wrangler deploy` (a change that is not deployed
   does not run — the Wed+Sat SPF schedule sat undeployed on 13-14 Oct 2026).
 
