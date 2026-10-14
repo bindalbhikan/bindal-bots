@@ -55,7 +55,7 @@ Put-Secret "ALLOWED_CHAT_IDS" $chatId
 Write-Host "4/4 Connecting Telegram bot..."
 $api = "https://api.telegram.org/bot$botToken"
 $hook = Invoke-RestMethod -Method Post -Uri "$api/setWebhook" -ContentType "application/json" -Body (@{
-    url = $url; secret_token = $webhookSecret; allowed_updates = @("message"); drop_pending_updates = $true
+    url = $url; secret_token = $webhookSecret; allowed_updates = @("message", "callback_query"); drop_pending_updates = $true
 } | ConvertTo-Json)
 Write-Host "  setWebhook: $($hook.description)"
 
