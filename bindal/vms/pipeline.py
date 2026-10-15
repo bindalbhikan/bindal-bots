@@ -143,20 +143,25 @@ def run_snapshot(args) -> int:
 
 # ------------------------------------------------------------------ main
 
-def erp_text(e: dict) -> str:
-    """ERP vs VMS for Telegram: 24 characters wide, fits a phone."""
+def _erp_table(codes: list[str], counts: dict) -> str:
     lines = [f"{'Code':<5} {'Pack':>5} {'VMS':>5} {'%':>6}"]
     to = tv = 0
-    for c in e["codes"]:
-        o, v = e["total"][c]
+    for c in codes:
+        o, v = counts.get(c, [0, 0])
         if c == "OTHER" and not o:
             continue
         to, tv = to + o, tv + v
         lines.append(f"{c:<5} {o:>5} {v:>5} {(v / o * 100 if o else 0):>5.1f}%")
     lines.append(f"{'Total':<5} {to:>5} {tv:>5} {(tv / to * 100 if to else 0):>5.1f}%")
-    out = [f"🏭 <b>ERP vs VMS · {e['from']:%d %b} - {e['to']:%d %b}</b>",
-           "<i>parcels packed in the ERP, with a VMS video</i>",
-           "<pre>" + telegram.esc("\n".join(lines)) + "</pre>"]
+    return "<pre>" + telegram.esc("\n".join(lines)) + "</pre>"
+
+
+def erp_text(e: dict) -> str:
+    """ERP vs VMS for Telegram: yesterday, today and the month, 24 characters wide, fits a phone."""
+    out = ["🏭 <b>ERP vs VMS</b>", "<i>parcels packed in the ERP, with a VMS video</i>"]
+    for r, label in zip(e.get("recent", []), ("Yesterday", "Today")):
+        out += ["", f"<b>📅 {label} · {r['date']:%d %b}</b>", _erp_table(e["codes"], r["codes"])]
+    out += ["", f"<b>🗓 {e['from']:%d %b} - {e['to']:%d %b}</b>", _erp_table(e["codes"], e["total"])]
     notes = []
     if e["missing"]:
         notes.append(f"{len(e['missing'])} packed parcels have no VMS (sheet: ERP NO VMS)")

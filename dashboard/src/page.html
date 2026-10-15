@@ -452,21 +452,26 @@ function renderErp(el) {
   el.appendChild(box);
   if (!erp) { box.innerHTML = empty("🏭 ERP vs VMS"); return; }
   const codes = erp.codes.filter((c) => c !== "OTHER" || erp.total[c][0]);
-  let to = 0, tv = 0;
-  const rows = codes.map((c) => {
-    const [o, v] = erp.total[c]; to += o; tv += v;
-    return `<tr><td>${esc(c)}</td><td class="num">${n(o)}</td><td class="num">${n(v)}</td><td class="num">${n(o - v)}</td><td class="num"><b>${pf(pct(v, o))}</b></td></tr>`;
-  }).join("");
+  const table = (counts) => {
+    let to = 0, tv = 0;
+    const rows = codes.map((c) => {
+      const [o, v] = counts[c] || [0, 0]; to += o; tv += v;
+      return `<tr><td>${esc(c)}</td><td class="num">${n(o)}</td><td class="num">${n(v)}</td><td class="num">${n(o - v)}</td><td class="num"><b>${pf(pct(v, o))}</b></td></tr>`;
+    }).join("");
+    return `<table><thead><tr><th>Code</th><th class="num">Packed</th><th class="num">VMS</th><th class="num">No VMS</th><th class="num">%</th></tr></thead>
+       <tbody>${rows}<tr class="total"><td>Total</td><td class="num">${n(to)}</td><td class="num">${n(tv)}</td><td class="num">${n(to - tv)}</td><td class="num">${pf(pct(tv, to))}</td></tr></tbody></table>`;
+  };
+  const recent = (erp.recent || []).map((r, i) =>
+    card(`📅 ${i ? "Today" : "Yesterday"} · ${dshort(r.date)}`, "Packed in the ERP that day, with a VMS video", table(r.codes))).join("");
   const packers = {};
   erp.missing.forEach((m) => (packers[m.packed_by || "—"] = (packers[m.packed_by || "—"] || 0) + 1));
   const byPacker = Object.entries(packers).sort((a, b) => b[1] - a[1]);
   const list = erp.missing.filter((m) => (erpCode === "All" || m.code === erpCode) && (erpPacker === "All" || (m.packed_by || "—") === erpPacker)
     && (!erpQuery || `${m.awb} ${m.skus}`.toLowerCase().includes(erpQuery)));
   const span = `${dshort(erp.from)} – ${dshort(erp.to)}`;
-  box.innerHTML =
+  box.innerHTML = recent +
     card(`🏭 ERP vs VMS · ${span}`, "Parcels packed in the ERP that have a VMS video",
-      `<table><thead><tr><th>Code</th><th class="num">Packed</th><th class="num">VMS</th><th class="num">No VMS</th><th class="num">%</th></tr></thead>
-       <tbody>${rows}<tr class="total"><td>Total</td><td class="num">${n(to)}</td><td class="num">${n(tv)}</td><td class="num">${n(to - tv)}</td><td class="num">${pf(pct(tv, to))}</td></tr></tbody></table>
+      `${table(erp.total)}
        ${byPacker.length ? `<p class="hint" style="margin:12px 0 6px">No VMS by who packed</p><table><tbody>${byPacker.map(([p, c]) =>
          `<tr><td>${esc(p)}</td><td class="barcell"><div class="bar" style="width:${(c / byPacker[0][1]) * 100}%;background:${css("--s2")}"></div></td><td class="num">${n(c)}</td></tr>`).join("")}</tbody></table>` : ""}`) +
     card(`ERP NO VMS · ${n(erp.missing_count ?? erp.missing.length)} AWB`, erp.missing_count > erp.missing.length ? `Latest ${n(erp.missing.length)} shown · full list in the ERP NO VMS sheet` : "Packed in the ERP, no VMS scan",

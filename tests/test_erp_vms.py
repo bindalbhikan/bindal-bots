@@ -68,3 +68,15 @@ def test_erp_sheets(tmp_path):
                           [{"date": date(2026, 10, 2), "code": "TLPL", "awb": "MYSP9", "packed_by": "P", "voucher": "V", "skus": "A"}])
     book.write_erp_no_vms(date(2026, 10, 1), date(2026, 10, 3), [])     # next run: list rebuilt, not appended
     assert book.wb["ERP NO VMS"].max_row == 1
+
+
+def test_erp_text_shows_yesterday_and_today():
+    from bindal.vms.pipeline import erp_text
+    zero = {"TLPL": [0, 0], OTHER: [0, 0]}
+    e = {"from": date(2026, 10, 1), "to": date(2026, 10, 15), "codes": ["TLPL", OTHER],
+         "total": {"TLPL": [10, 9], OTHER: [0, 0]}, "missing": [], "unknown_channel": 0,
+         "recent": [{"date": date(2026, 10, 14), "codes": {"TLPL": [4, 3], OTHER: [0, 0]}},
+                    {"date": date(2026, 10, 15), "codes": zero}]}
+    text = erp_text(e)
+    assert "Yesterday · 14 Oct" in text and "Today · 15 Oct" in text
+    assert "TLPL      4     3  75.0%" in text
