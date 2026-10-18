@@ -73,9 +73,13 @@ $commands = @(
     @{ command = "vms";     description = "Myntra VMS report (optional: from to dates)" },
     @{ command = "ajiotat"; description = "AJIO TAT update (optional: days)" },
     @{ command = "ajiospf"; description = "AJIO SPF claims (optional: dry)" },
+    @{ command = "myntraspf"; description = "Myntra SPF master update" },
+    @{ command = "returns"; description = "Return analysis (optional: YYYY-MM)" },
+    @{ command = "ajioads"; description = "AJIO ads / TOT gap report" },
     @{ command = "salepic"; description = "Sale sheet picture (optional: YYYY-MM)" },
     @{ command = "vmspic";  description = "VMS sheet picture (optional: YYYY-MM)" },
     @{ command = "status";  description = "Last run of each report" },
+    @{ command = "dashboard"; description = "Dashboard sign-in link (10 min)" },
     @{ command = "help";    description = "Show commands" }
 )
 Invoke-RestMethod -Method Post -Uri "$api/setMyCommands" -ContentType "application/json" -Body (@{ commands = $commands } | ConvertTo-Json -Depth 4) | Out-Null
