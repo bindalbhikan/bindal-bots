@@ -28,3 +28,5 @@ fl tax sel report.json
 .wrangler/
 # the relay script with its token filled in (paste into Apps Script, then delete)
 drive_relay_SETUP.gs
+# Google Drive folder settings
+desktop.ini
