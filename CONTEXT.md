@@ -22,7 +22,8 @@ Drive keeps the old versions). It refuses to upload when someone changed the fil
 
 ### VMS: ERP vs VMS
 
-The VMS run also rebuilds, from the 1st of the month to today, two sheets in the same
+The VMS run also checks the parcels packed in the ERP yesterday and today (only those two
+days are fetched; their rows are replaced, earlier days stay) in two sheets of the same
 workbook: `ERP VS VMS MON-YY` (per day and channel: parcels packed in the ERP, how many have
 a VMS scan, %) and `ERP NO VMS` (the AWBs without a scan, with who packed them). AWBs come
 from the ERP packing report (DigiBizz report 62, portal MYNTRA: its Order ID is the Myntra
@@ -86,9 +87,11 @@ XpressBees). One package per bot: `bindal/sale`, `vms`, `ajio_tat`, `ajio_spf`.
 - SPF: per-run caps; any failed source turns the run into a dry run; a failed "ticket already
   exists?" check stops that ticket instead of raising a duplicate.
 - Myntra SJIT: the partner portal login has a reCAPTCHA (never bypassed). The bot reuses the
-  login made by hand in Chrome: the `myntra-extension/` Chrome extension sends it to the
-  Telegram worker (KV `myntra_session`) whenever it changes (fallback: secret
-  `MYNTRA_SESSION_JSON` via `scripts/myntra_session.py`). Reports already on the portal are
+  login made by hand in Chrome: the `cookie:` request header copied from DevTools into
+  `myntra_cookie.txt`, saved by `scripts/myntra_session.py` to the Telegram worker (KV
+  `myntra_session`, read first) and the secret `MYNTRA_SESSION_JSON`. Do not log out of the
+  portal: that ends the bot's session (a Chrome extension was tried and removed: the login
+  cookies are httpOnly, host-only on partnersapi). Reports already on the portal are
   used first; only uncovered days get a new `Seller_Orders_Report` (the run waits for it). A
   9:00 AM run (`sale --sjit-request`, worker cron) asks for the report days early. Renewed
   cookies are saved back to the worker after each run. Telegram alert when the session is

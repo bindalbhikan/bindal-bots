@@ -133,20 +133,15 @@ def test_plan_reuses_existing_reports_and_names_missing_days():
     assert mp.plan(jobs, [d(12), d(13)])[0][0]["id"] == 2
 
 
-def test_session_from_network_capture():
-    cap = {"exportedAt": "2026-10-14T17:27:00.117Z", "requests": [
-        {"url": "https://partnersapi.myntrainfo.com/api/x", "request": {"headers": {"Cookie": "sid=1; at=2"}}},
-        {"url": "https://partners.myntrainfo.com/", "type": "deep-scan",
-         "findings": [{"source": "cookie", "key": "bm_sv", "value": "v"}, {"source": "cookie", "key": "sid", "value": "0"}]},
-        {"url": "https://example.com/", "request": {"headers": {"cookie": "other=1"}}}]}
-    import json
-    s = mp.parse_session(json.dumps(cap))
-    assert {c["name"]: c["value"] for c in s.cookies} == {"sid": "1", "at": "2", "bm_sv": "v"}
-    assert s.saved_at is not None
-    assert "about 15 days" in mp.expiry_warning(s, 3, now=s.saved_at + __import__("datetime").timedelta(days=13))
+def test_session_without_expiry_is_taken_as_15_days():
+    from datetime import timedelta
+    s = mp.parse_session('{"savedAt": "2026-10-14T23:30:00", "cookies": '
+                         '[{"name": "session", "value": "1", "domain": ".myntrainfo.com"}]}')
+    assert "about 15 days" in mp.expiry_warning(s, 3, now=s.saved_at + timedelta(days=13))
+    assert mp.expiry_warning(s, 3, now=s.saved_at + timedelta(days=5)) == ""
 
 
-def test_session_from_chrome_extension():
+def test_session_saved_with_utc_time():
     s = mp.parse_session('{"savedAt": "2026-10-14T18:00:00.000Z", "expiresAt": null, "cookies": ['
                          '{"name": "sid", "value": "1", "domain": "partners.myntrainfo.com", "expires": 1800000000,'
                          ' "httpOnly": true}]}')

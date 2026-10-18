@@ -6,7 +6,7 @@ Every bot sends its report to Telegram **@bindal_exports_bot**.
 | Bot | Command | What it does | Daily (IST) |
 |---|---|---|---|
 | Sale | `python run.py sale` | Fills `SALE REPORT.xlsx` (OMSGuru + Flipkart FBF + Myntra SJIT), Telegram summary | 3:30 PM (9:00 AM: SJIT report request) |
-| VMS | `python run.py vms` | Checks every Myntra order has a VMS packing video, fills `MYNTRA ORDER ID WISE VMS.xlsx`; also ERP vs VMS (parcels packed in the ERP, month to date) | 5:30 PM |
+| VMS | `python run.py vms` | Checks every Myntra order has a VMS packing video, fills `MYNTRA ORDER ID WISE VMS.xlsx`; also ERP vs VMS (parcels packed in the ERP yesterday and today) | 5:30 PM |
 | AJIO TAT | `python run.py ajio-tat` | AJIO dispatch TAT (the 10:10 rule), fills `AJIO_TAT_MASTER` | 5:30 PM |
 | AJIO SPF | `python run.py ajio-spf` | AJIO SPF claims: raise tickets + Gemini-drafted follow-ups, rebuilds `AJIO MASTER.xlsx` | 11:30 AM Wed + Sat |
 
@@ -83,20 +83,21 @@ Secrets never go in git: `.env`, `service_account.json` and all workbooks are ig
 - SPF: nothing is posted to AJIO unless `SPF_DRY_RUN` is explicitly `0`/`false`/`no`/`off`;
   per-run caps; any failed source turns the run into a dry run; a failed "does this return
   already have a ticket?" check stops that ticket instead of raising a duplicate.
-- Myntra SJIT: the partner portal login has a reCAPTCHA, so the bot never logs in. It reuses the
-  login made by hand in Chrome: the `myntra-extension/` Chrome extension (see its README) sends
-  it to the Telegram worker whenever it changes. Fallback without the extension: log in on the portal, save a network capture with the login cookies (or
-  DevTools > Network > Copy as cURL into a file), then `python scripts/myntra_session.py FILE`.
-  It checks the cookies against the portal and updates the GitHub secret `MYNTRA_SESSION_JSON`
-  itself (gh CLI). Without FILE it takes the newest `netcap-*.json` in Downloads, else opens a
-  Chrome window to log in (`pip install playwright` once).
+- Myntra SJIT: the partner portal login has a reCAPTCHA, so the bot never logs in. It reuses a
+  login made by hand in Chrome. To give it a new one: logged in on the portal, open DevTools (F12)
+  > Network > any `partnersapi.myntrainfo.com` request > Request Headers, copy the whole
+  `cookie:` value into `myntra_cookie.txt` (git-ignored), then run
+  `python scripts/myntra_session.py`. It checks the cookies against the portal and saves them to
+  the Telegram worker (the copy the bot reads) and to the GitHub secret `MYNTRA_SESSION_JSON`.
+  The login cookies are httpOnly: browser JavaScript and page captures cannot read them. Do not
+  log out of the portal afterwards: that ends the bot's session too.
   The sale run first uses `Seller_Orders_Report`s already on the portal (newest per day; also
   the last 30 days, for cancellations of older orders). Only days no report covers, or a report
   that does not download, get a new report, which the run waits for (~5-10 min). At 9:00 AM a
   short run (`python run.py sale --sjit-request`) asks the portal for the report days, so it is
   ready by 3:30 PM. After each run the cookies the portal renewed are saved back to the worker.
-  Telegram alert when the session has expired or expires within 3 days (no expiry date in a
-  cURL / capture: taken as 15 days from saving). A CSV dropped by hand into the `sjit` Drive
+  Telegram alert when the session has expired or expires within 3 days (a pasted cookie line
+  has no expiry date: taken as 15 days from the last save, which every run renews). A CSV dropped by hand into the `sjit` Drive
   folder is still read too.
 
 ## Local run

@@ -151,8 +151,9 @@ def session_alert(alerts: list[str]) -> str:
         "🔐 <b>Myntra partner portal session</b>",
         *(f"• {telegram.esc(a)}" for a in alerts),
         "",
-        "Renew it: log in on the Myntra partner portal in the Chrome that has the "
-        "<b>Bindal Myntra Session</b> extension; it sends the new login to the bot by itself.",
+        "Renew it: log in on the Myntra partner portal, copy the <code>cookie:</code> request header "
+        "(DevTools > Network > a partnersapi request) into <code>myntra_cookie.txt</code>, then run "
+        "<code>python scripts/myntra_session.py</code>.",
     ])
 
 

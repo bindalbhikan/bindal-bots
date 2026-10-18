@@ -1,15 +1,15 @@
 """Myntra partner portal: fetch the Seller_Orders_Report with a saved login session.
 
 The portal login has a reCAPTCHA, so the bot never logs in. Someone logs in by hand in
-Chrome and the bot reuses that session until it expires; the sale run warns on Telegram
-a few days before. Where the session comes from, first found wins:
-  1. the Chrome extension myntra-extension/: it sends the login to the Telegram worker
-     whenever it changes; read through /api/myntra-session/read (DASHBOARD_TOKEN)
-  2. MYNTRA_SESSION_JSON, or the file MYNTRA_SESSION_FILE (scripts/myntra_session.py)
+Chrome and copies the login cookies (scripts/myntra_session.py saves them); the bot reuses
+that session and, after each run, saves the cookies the portal renewed, which keeps it
+alive. Telegram is told when it has expired. Where the session comes from, first found wins:
+  1. the Telegram worker (KV myntra_session), read through /api/myntra-session/read
+     (DASHBOARD_TOKEN): written by scripts/myntra_session.py and by every run
+  2. MYNTRA_SESSION_JSON, or the file MYNTRA_SESSION_FILE (default myntra_session.json)
 
 The session JSON may be:
   * {"savedAt": ..., "cookies": [{name, value, domain, expires, httpOnly, ...}]}
-    (written by scripts/myntra_session.py, same shape as a Playwright storage_state)
   * {"cookie": "a=1; b=2"} or the plain Cookie header text, or a whole "Copy as cURL"
     command from Chrome DevTools (no expiry date is known then).
 
@@ -79,26 +79,6 @@ def _local(iso) -> datetime | None:
     return t.astimezone().replace(tzinfo=None) if t.tzinfo else t
 
 
-def _from_capture(data: dict) -> Session:
-    """Cookies from a network capture export (netcap-*.json): the newest Cookie request
-    header sent to the portal, else the cookies its page scans saw. A capture made by page
-    JavaScript never holds the httpOnly login cookies; check() then reports a logout."""
-    jar: dict[str, dict] = {}
-    for r in data["requests"]:
-        if "myntrainfo" not in (r.get("url") or ""):
-            continue
-        headers = (r.get("request") or {}).get("headers") or {}
-        header = next((v for k, v in headers.items() if k.lower() == "cookie" and v), "")
-        for c in _cookie_header(header) if header else []:
-            jar[c["name"]] = c
-        for f in r.get("findings") or []:
-            if f.get("source") == "cookie" and f.get("key") and f["key"] not in jar:
-                jar[f["key"]] = {"name": f["key"], "value": str(f.get("value") or ""), "domain": ".myntrainfo.com"}
-    if not jar:
-        raise SessionExpired("the network capture holds no portal cookies")
-    return Session(list(jar.values()), _local(data.get("exportedAt")))
-
-
 def parse_session(text: str) -> Session:
     text = (text or "").strip()
     if not text:
@@ -112,8 +92,6 @@ def parse_session(text: str) -> Session:
         return Session(cookies, _local(data.get("savedAt")))
     if isinstance(data, dict) and isinstance(data.get("cookie"), str):
         return Session(_cookie_header(data["cookie"]))
-    if isinstance(data, dict) and isinstance(data.get("requests"), list):
-        return _from_capture(data)
     cookies = _cookie_header(text)
     if not cookies:
         raise SessionExpired("Myntra session JSON not understood: expected cookies")
@@ -121,7 +99,7 @@ def parse_session(text: str) -> Session:
 
 
 def from_worker(env) -> str:
-    """The session the Chrome extension (myntra-extension/) last sent to the Telegram worker."""
+    """The session last saved on the Telegram worker (by scripts/myntra_session.py or a run)."""
     url, token = env("DASHBOARD_URL"), env("DASHBOARD_TOKEN")
     if not url or not token:
         return ""
@@ -157,7 +135,7 @@ def save_to_worker(env, cookies: list[dict]) -> bool:
 
 
 def session_text(env, default_file: Path) -> str:
-    """The extension's session from the worker, else MYNTRA_SESSION_JSON, else the content of
+    """The session saved on the worker, else MYNTRA_SESSION_JSON, else the content of
     MYNTRA_SESSION_FILE (default_file when unset)."""
     text = from_worker(env) or env("MYNTRA_SESSION_JSON")
     if not text:

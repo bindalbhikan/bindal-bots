@@ -279,9 +279,10 @@ async function pushDashboard(request, env, key) {
   return new Response("stored");
 }
 
-// Myntra partner portal login cookies, sent by the Chrome extension (myntra-extension/) whenever
-// the login changes, read by the sale bot. Same DASHBOARD_TOKEN; kept in KV under a key the
-// dashboard never reads. A changed login is announced on Telegram.
+// Myntra partner portal login cookies for the sale bot's SJIT report. Saved by
+// scripts/myntra_session.py when someone pastes a new login (announced on Telegram) and by every
+// sale run with the cookies the portal renewed (quiet). Same DASHBOARD_TOKEN; kept in KV under a
+// key the dashboard never reads.
 const MYNTRA_KEY = "myntra_session";
 
 function authorised(request, env) {
@@ -305,7 +306,7 @@ async function saveMyntraSession(request, env) {
   if (chat && data.source !== "bot") {   // the bot saving renewed cookies after a run stays quiet
     const ends = data.expiresAt ? new Date(data.expiresAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata",
       day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "not given";
-    await sendMessage(env, chat, `🔐 <b>Myntra session saved</b>\n<i>from the Chrome extension</i>\n\n` +
+    await sendMessage(env, chat, `🔐 <b>Myntra session saved</b>\n<i>new portal login for the SJIT report</i>\n\n` +
       `Cookies: ${data.cookies.length}\nLogin expires: ${esc(ends)}`);
   }
   return new Response("stored");
@@ -435,7 +436,7 @@ async function handle(env, chatId, replyTo, text) {
 function describe(name, inputs) {
   const d = (s) => new Date(`${s}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
   if (inputs.today) return "Today so far";
-  if (inputs.erp_only) return "ERP vs VMS · 1st to today";
+  if (inputs.erp_only) return "ERP vs VMS · yesterday and today";
   if (inputs.snapshot) return inputs.snapshot === "current" ? "This month" : inputs.snapshot;
   if (inputs.dry_run) return "Dry run · nothing posted";
   if (name === "ajiospf") return "LIVE · posts on AJIO";
