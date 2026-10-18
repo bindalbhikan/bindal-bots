@@ -14,3 +14,6 @@ zxing-cpp>=2.2
 # pypdfium2 renders shipping labels to PIL images: without Pillow every
 # Shadowfax / Delhivery label fails and those Myntra orders show as NO VMS
 pillow>=10.0
+# Myntra SPF master: fast streaming writer, and the fast (Rust) xlsx reader for the big payment exports
+xlsxwriter>=3.1
+python-calamine>=0.2
