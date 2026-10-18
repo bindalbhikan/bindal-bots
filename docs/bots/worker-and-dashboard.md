@@ -10,4 +10,18 @@ for the saved Myntra sessions (`?account=main|dbcc|fmcc`). Deploy after every ch
 
 **Dashboard** `bindal-dashboard` (`dashboard/`): reads KV `DASH`; sign-in through `/dashboard` in
 Telegram (one-time link valid 10 minutes, then a 30-day cookie, signed with `SESSION_KEY`).
-Sections per bot from the pushed numbers (see `dashboard/src/page.html`).
+Sections per bot from the pushed numbers (see `dashboard/src/page.html`); the data keys it reads
+are `KEYS` in `dashboard/src/index.js` and must also be in the worker's `DASH_KEYS`.
+
+| Tab | Key(s) | Shows |
+|---|---|---|
+| Sale | `sale`, `sale_today` | daily gross chart, channels vs last month, today so far |
+| VMS | `vms`, `vms_erp` | VMS % by SLA date, NO VMS list, ERP vs VMS by packer |
+| TAT | `ajio_tat` | TAT result per day, couriers, pickup pending list |
+| AJIO SPF | `ajio_spf` | open returns by age, run summary, courier pickup, tickets |
+| Myntra SPF | `myntra_spf` | per account / total: final status, received source (ERP / OMSGuru / manual), claim status + value (and how many values are known), open by age, returns per month |
+| Returns | `returns`, `returns_year` | return % per portal (month / year), % by month, top reasons, brands, categories, states (`bindal/return_analysis/dash.py`) |
+| Ads | `ajio_ads` | G4 per month, charge, charge / G4 %, pending months |
+
+KPIs: sale, VMS %, AJIO pickup pending, AJIO open returns, Myntra claims eligible, last month's
+return %. The run strip shows every bot's last run (`run_<key>`, pushed by `core/app.py`).
