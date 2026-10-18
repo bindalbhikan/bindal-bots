@@ -20,3 +20,4 @@ __pycache__/
 venv/
 worker/.wrangler/
 worker/node_modules/
+scripts/*.txt

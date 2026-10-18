@@ -61,9 +61,11 @@ class Session:
 
 
 def _cookie_header(text: str) -> list[dict]:
-    """Cookies from a Cookie header line or a "Copy as cURL" command."""
+    """Cookies from a Cookie header line, a "Copy as cURL" command, or the request headers
+    copied from DevTools (a line "cookie" with the value on the next line)."""
     m = re.search(r"(?:-b|--cookie)\s+(['\"])(.*?)\1", text, re.S) or \
-        re.search(r"cookie:\s*([^'\"\n]+)", text, re.I)
+        re.search(r"(?im)^cookie[ \t]*\r?\n[ \t]*([^\r\n]+)", text) or \
+        re.search(r"(?im)^[ \t]*cookie:\s*([^'\"\r\n]+)", text)
     raw = m.group(m.lastindex) if m else text
     out = []
     for part in raw.split(";"):

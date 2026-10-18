@@ -147,3 +147,12 @@ def test_session_saved_with_utc_time():
                          ' "httpOnly": true}]}')
     assert s.saved_at is not None and s.saved_at.tzinfo is None
     assert s.expires() == datetime.fromtimestamp(1800000000)
+
+
+def test_session_from_devtools_request_headers():
+    dump = ("set-cookie\nerp.at=old; Max-Age=2592000; Path=/; HttpOnly\n"
+            ":authority\npartnersapi.myntrainfo.com\n"
+            "cookie\n_ga=1; erp.at=A; erp.rt=R; session=S\n"
+            "origin\nhttps://partners.myntrainfo.com\n")
+    cookies = {c["name"]: c["value"] for c in mp.parse_session(dump).cookies}
+    assert cookies == {"_ga": "1", "erp.at": "A", "erp.rt": "R", "session": "S"}

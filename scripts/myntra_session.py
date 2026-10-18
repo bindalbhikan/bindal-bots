@@ -1,13 +1,17 @@
 #!/usr/bin/env python
 """Save a Myntra partner portal login for the bots, per seller account.
 
-    python scripts/myntra_session.py ACCOUNT [FILE]      ACCOUNT: MAIN (19170), DBCC (32207), FMCC (35426)
+    python scripts/myntra_session.py                  every account with a file in scripts/:
+                                                      main.txt (MAIN 19170), dbcc.txt (DBCC 32207),
+                                                      fmcc.txt (FMCC 35426)
+    python scripts/myntra_session.py ACCOUNT          that account: its .txt file, else the clipboard
+    python scripts/myntra_session.py ACCOUNT FILE     that account from FILE
 
 How to get the login, once per account:
   1. In Chrome, log in on https://partners.myntrainfo.com with that account.
-  2. F12 > Network > reload the page > click any partnersapi.myntrainfo.com request >
-     Headers > Request Headers > right-click the "cookie:" value > Copy value.
-  3. Run the command. Without FILE the cookie line is read from the clipboard.
+  2. F12 > Network > reload the page > click any partnersapi.myntrainfo.com request > Headers.
+  3. Copy the request headers (or just the "cookie" value) into scripts/<account>.txt.
+  4. Run the command, then delete the .txt files (they hold live logins).
 
 The login cookies (erp.at, erp.rt, session) are httpOnly: browser JavaScript and page-level
 network captures (netcap) never contain them, only DevTools shows them.
@@ -31,6 +35,7 @@ sys.path.insert(0, str(ROOT))
 from bindal.sale.myntra_portal import ACCOUNTS, MyntraPortal, SessionExpired, parse_session  # noqa: E402
 
 REPO = "bindalbhikan/bindal-bots"
+DROP = ROOT / "scripts"            # main.txt, dbcc.txt, fmcc.txt: request headers copied from DevTools
 
 
 def clipboard() -> str:
@@ -63,44 +68,61 @@ def push(text: str, account: str) -> bool:
     return True
 
 
-def main(argv: list[str]) -> int:
-    args = [a for a in argv if a != "--no-push"]
-    account = (args[0].upper() if args else "")
-    if account not in ACCOUNTS:
-        print(f"Usage: python scripts/myntra_session.py {'|'.join(ACCOUNTS)} [FILE]")
-        return 2
-    if len(args) > 1:
-        source = Path(args[1])
-        if not source.is_file():
-            print(f"{source} not found")
-            return 1
-        text, where = source.read_text(encoding="utf-8-sig"), source.name
-    else:
-        text, where = clipboard(), "the clipboard"
+def save(account: str, text: str, where: str, push_it: bool) -> bool:
+    """Check one account's cookies and save them; True when saved."""
     if "erp.at" not in text and "session" not in text:
-        print(f"No portal login cookies in {where}: copy the cookie: value from DevTools first (see the top of this script)")
-        return 1
+        print(f"{account}: no portal login cookies in {where} (see the top of this script)")
+        return False
     try:
         session = parse_session(text)
         portal = MyntraPortal(session)
         portal.check()
     except SessionExpired as exc:
-        print(f"These cookies are not logged in ({exc}). Copy the cookie line again while logged in.")
-        return 1
+        print(f"{account}: the cookies in {where} are not logged in ({exc}). Copy them again while logged in.")
+        return False
     pid = portal.partner_id()
     if pid and pid != ACCOUNTS[account]:
         other = next((a for a, p in ACCOUNTS.items() if p == pid), str(pid))
-        print(f"This login is for {other} ({pid}), not {account} ({ACCOUNTS[account]}). Nothing saved.")
-        return 1
-    session.saved_at = datetime.now()
-    data = {"savedAt": session.saved_at.isoformat(timespec="seconds"), "source": "script", "cookies": session.cookies}
+        print(f"{account}: the login in {where} is for {other} ({pid}), not {account} ({ACCOUNTS[account]}). Nothing saved.")
+        return False
+    cookies = portal.cookies() or session.cookies      # as renewed by the check
+    data = {"savedAt": datetime.now().isoformat(timespec="seconds"), "source": "script", "cookies": cookies}
     out = json.dumps(data, separators=(",", ":"))
     path = ROOT / ("myntra_session.json" if account == "MAIN" else f"myntra_session_{account.lower()}.json")
     path.write_text(out, encoding="utf-8")
-    print(f"Logged in as {account} ({pid or 'partner id not shown'}). Saved {len(session.cookies)} cookies to {path.name}")
-    if "--no-push" in argv:
-        return 0
-    return 0 if push(out, account) else 1
+    print(f"{account}: logged in ({pid or 'partner id not shown'}), {len(cookies)} cookies saved to {path.name}")
+    return push(out, account) if push_it else True
+
+
+def main(argv: list[str]) -> int:
+    push_it = "--no-push" not in argv
+    args = [a for a in argv if a != "--no-push"]
+    if args and args[0].upper() not in ACCOUNTS:
+        print(f"Usage: python scripts/myntra_session.py [{'|'.join(ACCOUNTS)}] [FILE]")
+        return 2
+    if len(args) > 1:                       # one account, from the file given
+        source = Path(args[1])
+        if not source.is_file():
+            print(f"{source} not found")
+            return 1
+        return 0 if save(args[0].upper(), source.read_text(encoding="utf-8-sig"), source.name, push_it) else 1
+    accounts = [args[0].upper()] if args else list(ACCOUNTS)
+    done, tried = 0, 0
+    for account in accounts:
+        source = DROP / f"{account.lower()}.txt"
+        if source.is_file():
+            text, where = source.read_text(encoding="utf-8-sig"), f"scripts/{source.name}"
+        elif args:                          # one account named, no file: the clipboard
+            text, where = clipboard(), "the clipboard"
+        else:
+            continue
+        tried += 1
+        done += save(account, text, where, push_it)
+    if not tried:
+        print(f"Nothing to do: put the copied request headers in scripts/main.txt, dbcc.txt or fmcc.txt")
+        return 1
+    print(f"{done} of {tried} account(s) saved." + (" Delete the .txt files now: they hold live logins." if done else ""))
+    return 0 if done == tried else 1
 
 
 if __name__ == "__main__":
