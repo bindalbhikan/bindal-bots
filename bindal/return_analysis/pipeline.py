@@ -147,10 +147,17 @@ def run_backfill(args, root: DriveFolder, work: Path) -> int:
         shutil.copy2(r["report"], keep)
     notes.insert(0, "months built now: " + ", ".join(f"{m:%b}" for m in filled))
     send_yearly(args, results, year, notes, "Yearly Return Analysis (first build)")
-    dashboard.publish("returns_year", {"year": year, "notes": notes,
-                                       "portals": [{k: r[k] for k in ("portal", "sold", "returned", "rate")}
-                                                   for r in results]})
+    publish_year(year, results, notes)
     return 0
+
+
+def publish_year(year: int, results: list[dict], notes: list[str]) -> None:
+    from . import dash
+    frames = next((r["frames"] for r in results if r.get("frames")), {})
+    dashboard.publish("returns_year", {
+        "year": year, "notes": notes,
+        "portals": [{k: r[k] for k in ("portal", "sold", "returned", "rate")} for r in results],
+        "details": dash.details(frames)})
 
 
 # ------------------------------------------------------------------ runs
@@ -259,13 +266,17 @@ def run(args) -> int:
             year_results = yearly.rebuild_year(root, month.year, work / "Supporting", work)
             if year_results:
                 send_yearly(args, year_results, month.year, [])
+                publish_year(month.year, year_results, [])
         except Exception as exc:  # noqa: BLE001 - the monthly report is already out
             log.exception("Yearly report not updated")
             msg = f"⚠️ <b>Yearly return analysis {month.year} not updated</b>\n\n<code>{telegram.esc(str(exc)[:300])}</code>"
             print(msg) if args.no_telegram else telegram.send(msg)
+    from . import dash
     dashboard.publish("returns", {"month": tag, "sale": sale, "returns": ret, "notes": notes,
                                   "portals": [{k: r[k] for k in ("portal", "sold", "returned", "rate")}
-                                              for r in results]})
+                                              for r in results],
+                                  "details": dash.details({r["portal"]: r["df"] for r in results
+                                                           if r.get("df") is not None})})
     return 0
 
 

@@ -59,7 +59,8 @@
   .btn:focus-visible, .tab:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-  @media (min-width: 860px) { .kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @media (min-width: 860px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (min-width: 1100px) { .kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
   .card {
     background: var(--surface); border: 1px solid var(--ring); border-radius: 14px; padding: 14px;
     min-width: 0;
@@ -86,8 +87,7 @@
     padding: 8px 14px; font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap; min-height: 40px;
   }
   @media (max-width: 520px) {
-    .tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    .tab { padding: 8px 4px; font-size: 13.5px; }
+    .tab { padding: 8px 11px; font-size: 13.5px; }
   }
   .tab[aria-selected="true"] { background: var(--ink); color: var(--page); border-color: var(--ink); }
   .grid { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
@@ -153,7 +153,10 @@
     <button class="tab" role="tab" data-tab="sale" aria-selected="true">📈 Sale</button>
     <button class="tab" role="tab" data-tab="vms" aria-selected="false">📹 VMS</button>
     <button class="tab" role="tab" data-tab="tat" aria-selected="false" title="AJIO TAT">📦 TAT</button>
-    <button class="tab" role="tab" data-tab="spf" aria-selected="false" title="AJIO SPF">🧾 SPF</button>
+    <button class="tab" role="tab" data-tab="spf" aria-selected="false" title="AJIO SPF">🧾 AJIO SPF</button>
+    <button class="tab" role="tab" data-tab="mspf" aria-selected="false" title="Myntra SPF">🧾 Myntra SPF</button>
+    <button class="tab" role="tab" data-tab="ret" aria-selected="false" title="Return analysis">↩️ Returns</button>
+    <button class="tab" role="tab" data-tab="ads" aria-selected="false" title="AJIO ads / TOT gap">📣 Ads</button>
   </nav>
 
   <main>
@@ -161,6 +164,9 @@
     <section id="tab-vms" class="grid" hidden></section>
     <section id="tab-tat" class="grid" hidden></section>
     <section id="tab-spf" class="grid" hidden></section>
+    <section id="tab-mspf" class="grid" hidden></section>
+    <section id="tab-ret" class="grid" hidden></section>
+    <section id="tab-ads" class="grid" hidden></section>
   </main>
 </div>
 <div class="tip" id="tip" role="tooltip"></div>
@@ -194,9 +200,10 @@ $("#theme").onclick = () => {
 
 // ------------------------------------------------------------------ tabs
 const TAB_KEY = "bindal-tab";
+const TABS = ["sale", "vms", "tat", "spf", "mspf", "ret", "ads"];
 function showTab(name) {
   document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === name)));
-  ["sale", "vms", "tat", "spf"].forEach((t) => ($("#tab-" + t).hidden = t !== name));
+  TABS.forEach((t) => ($("#tab-" + t).hidden = t !== name));
   try { localStorage.setItem(TAB_KEY, name); } catch {}
   render();
 }
@@ -352,11 +359,21 @@ function renderTop() {
   const spf = DATA.ajio_spf;
   if (spf) {
     const value = spf.open_by_age.reduce((a, b) => a + b.value, 0);
-    k.push(kpi("🧾 Open returns", n(spf.open), `${rs(value)} invoice value · ${n(spf.open_with_ticket)} with ticket`));
-  } else k.push(kpi("🧾 Open returns", "—", "no data yet"));
+    k.push(kpi("🧾 AJIO open returns", n(spf.open), `${rs(value)} invoice value · ${n(spf.open_with_ticket)} with ticket`));
+  } else k.push(kpi("🧾 AJIO open returns", "—", "no data yet"));
+  const ms = DATA.myntra_spf && mspfTotal(DATA.myntra_spf.accounts || {});
+  if (ms && ms.rows) {
+    const el = ms.claims.ELIGIBLE || { count: 0, value: 0 };
+    const part = el.valued != null && el.valued < el.count ? ` (${n(el.valued)} valued)` : "";
+    k.push(kpi("🧾 Myntra claims eligible", n(el.count), `${rs(el.value)} order value${part} · ${n(ms.final.Open || 0)} open returns`));
+  } else k.push(kpi("🧾 Myntra claims eligible", "—", "no data yet"));
+  const ret = DATA.returns, all = ret && (ret.portals || []).find((p) => p.portal === "ALL PORTAL");
+  if (all) k.push(kpi("↩️ Return % · " + esc(ret.month), pf(all.rate), `${n(all.returned)} of ${n(all.sold)} units · all portals`));
+  else k.push(kpi("↩️ Return %", "—", "no data yet"));
   $("#kpis").innerHTML = k.join("");
 
-  const bots = [["sale", "Sale"], ["vms", "VMS"], ["ajio_tat", "AJIO TAT"], ["ajio_spf", "AJIO SPF"]];
+  const bots = [["sale", "Sale"], ["vms", "VMS"], ["ajio_tat", "AJIO TAT"], ["ajio_spf", "AJIO SPF"],
+                ["myntra_spf", "Myntra SPF"], ["returns", "Returns"], ["ajio_ads", "AJIO Ads"]];
   $("#runs").innerHTML = bots.map(([key, name]) => {
     const r = DATA["run_" + key];
     if (!r) return `<span class="run"><i class="dot" style="background:${css("--axis")}"></i>${name} · no run yet</span>`;
@@ -557,11 +574,163 @@ function renderSpf() {
     (spf.errors?.length ? card("⚠️ Errors", "Raising and replies were paused", `<ul class="notes error">${spf.errors.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>`) : "");
 }
 
+// ------------------------------------------------------------------ shared for the tabs below
+const monthLabel = (ym) => dt(ym + "-01").toLocaleDateString("en-IN", { month: "short", year: "2-digit" });
+function chips(name, values, current) {
+  return values.map((v) => `<button class="chip" type="button" data-${name}="${esc(v)}" aria-pressed="${v === current}">${esc(v)}</button>`).join("");
+}
+function splitTable(rows, label) {
+  if (!rows?.length) return `<div class="empty">No data</div>`;
+  const max = Math.max(1, ...rows.map((r) => r.rate));
+  return `<div class="scroll"><table><thead><tr><th>${label}</th><th class="num">Sold</th><th class="num">Ret</th><th class="barcell hide-sm"></th><th class="num">%</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${n(r.sold)}</td><td class="num">${n(r.returned)}</td>
+      <td class="barcell hide-sm"><div class="bar" style="width:${(r.rate / max) * 100}%;background:${css("--s2")}"></div></td><td class="num"><b>${pf(r.rate)}</b></td></tr>`).join("")}
+    </tbody></table></div>`;
+}
+
+// ------------------------------------------------------------------ Return analysis
+let retScope = "Month", retPortal = "ALL PORTAL";
+function renderReturns() {
+  const el = $("#tab-ret");
+  const month = DATA.returns, year = DATA.returns_year;
+  if (!month && !year) { el.innerHTML = empty("Return analysis"); return; }
+  if (retScope === "Year" && !year) retScope = "Month";
+  if (retScope === "Month" && !month) retScope = "Year";
+  const src = retScope === "Year" ? year : month;
+  const details = src.details || {};
+  const portals = (src.portals || []).map((p) => p.portal);
+  if (!portals.includes(retPortal)) retPortal = portals.includes("ALL PORTAL") ? "ALL PORTAL" : portals[0];
+  const d = details[retPortal];
+  const title = retScope === "Year" ? `Year ${year.year}` : month.month;
+  const maxRate = Math.max(1, ...(src.portals || []).map((p) => p.rate));
+  const summary = (src.portals || []).map((p) => `<tr${p.portal.includes("COMBINED") || p.portal === "ALL PORTAL" ? ' class="total"' : ""}>
+      <td>${esc(p.portal)}</td><td class="num">${n(p.sold)}</td><td class="num">${n(p.returned)}</td>
+      <td class="barcell hide-sm"><div class="bar" style="width:${(p.rate / maxRate) * 100}%"></div></td><td class="num"><b>${pf(p.rate)}</b></td></tr>`).join("");
+  const span = month && month.sale && month.returns && retScope === "Month"
+    ? `Sale ${dshort(month.sale[0])} – ${dshort(month.sale[1])} · returns to ${dshort(month.returns[1])}` : "January to the latest complete month";
+  const reasons = d?.reasons || [];
+  const maxR = Math.max(1, ...reasons.map((r) => r.qty));
+  el.className = "grid two";
+  el.innerHTML =
+    card(`Return % by portal · ${esc(title)}`, span,
+      `<div class="chips">${chips("rscope", ["Month", "Year"].filter((s) => (s === "Year" ? year : month)), retScope)}</div>
+       <div class="scroll"><table><thead><tr><th>Portal</th><th class="num">Sold</th><th class="num">Returned</th><th class="barcell hide-sm"></th><th class="num">%</th></tr></thead>
+       <tbody>${summary}</tbody></table></div>`) +
+    card("Portal", "Pick a portal for its details below",
+      `<div class="chips">${chips("rportal", portals, retPortal)}</div>
+       ${d ? `<table><tbody><tr><td>Units sold</td><td class="num">${n(d.sold)}</td></tr><tr><td>Units returned</td><td class="num">${n(d.returned)}</td></tr>
+         <tr class="total"><td>Return %</td><td class="num">${pf(d.rate)}</td></tr></tbody></table>` : `<div class="empty">Details appear after the next run</div>`}`) +
+    (d && d.months?.length > 1 ? card(`Return % by month · ${esc(retPortal)}`, "Sale month; returns of that sale", `<div class="chart" id="c-ret"></div>`) : "") +
+    (d ? card(`Top return reasons · ${esc(retPortal)}`, "Share of returned units",
+      reasons.length ? `<table><tbody>${reasons.map((r) => `<tr><td style="white-space:normal">${esc(r.name)}</td>
+        <td class="barcell"><div class="bar" style="width:${(r.qty / maxR) * 100}%;background:${css("--s2")}"></div></td>
+        <td class="num">${n(r.qty)}</td><td class="num">${pf(r.share)}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">No reasons given</div>`) : "") +
+    (d ? card("Brands", "Biggest sellers · return % of each", splitTable(d.brands, "Brand")) : "") +
+    (d ? card("Categories", "Biggest sellers · return % of each", splitTable(d.categories, "Category")) : "") +
+    (d?.states?.length ? card("States", "Biggest buyers · return % of each", splitTable(d.states, "State")) : "") +
+    (src.notes?.length ? card("Notes", "", `<ul class="notes">${src.notes.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`) : "");
+  if (d && d.months?.length > 1) {
+    const lo = Math.max(0, Math.floor(Math.min(...d.months.map((m) => m.rate)) / 5) * 5 - 5);
+    const hi = Math.ceil(Math.max(...d.months.map((m) => m.rate)) / 5) * 5 + 5;
+    lineChart($("#c-ret"), d.months.map((m) => ({ x: monthLabel(m.month), month: m.month, rate: m.rate })),
+      [{ key: "rate", name: "Return %", color: css("--s2") }], { min: lo, max: hi, label: "Return percent by month",
+        title: (r) => { const m = d.months.find((x) => x.month === r.month); return `${monthLabel(r.month)} · ${n(m.returned)} of ${n(m.sold)}`; } });
+  }
+  el.querySelectorAll("[data-rscope]").forEach((b) => (b.onclick = () => { retScope = b.dataset.rscope; renderReturns(); }));
+  el.querySelectorAll("[data-rportal]").forEach((b) => (b.onclick = () => { retPortal = b.dataset.rportal; renderReturns(); }));
+}
+
+// ------------------------------------------------------------------ Myntra SPF
+let mspfAccount = "All";
+function mspfTotal(accounts) {
+  const t = { rows: 0, final: {}, received_by: {}, claims: {}, open_age: {}, months: {} };
+  for (const a of Object.values(accounts)) {
+    t.rows += a.rows;
+    for (const [k, v] of Object.entries(a.final)) t.final[k] = (t.final[k] || 0) + v;
+    for (const [k, v] of Object.entries(a.received_by)) t.received_by[k] = (t.received_by[k] || 0) + v;
+    for (const [k, v] of Object.entries(a.claims)) { const c = (t.claims[k] ||= { count: 0, value: 0, valued: 0 }); c.count += v.count; c.value += v.value; c.valued += v.valued || 0; }
+    for (const [k, v] of Object.entries(a.open_age)) { const c = (t.open_age[k] ||= { count: 0, value: 0 }); c.count += v.count; c.value += v.value; }
+    for (const m of a.months) { const c = (t.months[m.month] ||= { month: m.month, returns: 0, open: 0, received: 0 }); c.returns += m.returns; c.open += m.open; c.received += m.received; }
+  }
+  t.months = Object.values(t.months).sort((a, b) => a.month.localeCompare(b.month));
+  return t;
+}
+function renderMspf() {
+  const el = $("#tab-mspf"), m = DATA.myntra_spf;
+  if (!m || !m.accounts || !Object.keys(m.accounts).length) { el.innerHTML = empty("Myntra SPF"); return; }
+  const names = Object.keys(m.accounts);
+  if (mspfAccount !== "All" && !names.includes(mspfAccount)) mspfAccount = "All";
+  const a = mspfAccount === "All" ? mspfTotal(m.accounts) : { ...m.accounts[mspfAccount] };
+  const finals = [["Return Received", "Received", css("--good")], ["Open", "Open (no final status)", css("--warning")],
+                  ["Payment Received", "Payment received", css("--s1")], ["SPF Paid", "SPF paid", css("--s3")]];
+  const maxF = Math.max(1, ...finals.map(([k]) => a.final[k] || 0));
+  const claims = [["ELIGIBLE", "🟢 Eligible now"], ["UPCOMING CLAIM", "🟡 Upcoming"], ["CLAIM DONE", "✅ Claim done"], ["EXPIRED", "🔴 Expired"], ["NON ELIGIBLE", "Not eligible"]];
+  const steps = [css("--seq-1"), css("--seq-2"), css("--seq-3"), css("--seq-4")];
+  const ages = Object.entries(a.open_age);
+  const maxAge = Math.max(1, ...ages.map(([, v]) => v.count));
+  const perAccount = names.map((k) => { const x = m.accounts[k]; return `<tr><td>${k}</td><td class="num">${n(x.rows)}</td><td class="num">${n(x.final.Open || 0)}</td>
+      <td class="num">${n(x.claims.ELIGIBLE?.count || 0)}</td><td class="num">${rs(x.claims.ELIGIBLE?.value || 0)}</td></tr>`; }).join("");
+  el.className = "grid two";
+  el.innerHTML =
+    card(`Returns by final status · ${n(a.rows)}`, `Master as of ${m.day ? dshort(m.day) : when(m.published_at)}`,
+      `<div class="chips">${chips("macc", ["All", ...names], mspfAccount)}</div>
+       <table><tbody>${finals.map(([k, label, col]) => `<tr><td>${label}</td><td class="barcell"><div class="bar" style="width:${((a.final[k] || 0) / maxF) * 100}%;background:${col}"></div></td>
+         <td class="num">${n(a.final[k] || 0)}</td><td class="num">${pf(pct(a.final[k] || 0, a.rows))}</td></tr>`).join("")}</tbody></table>
+       <p class="hint" style="margin:12px 0 4px">Received found in</p>
+       <table><tbody>${[["ERP", "ERP GRN"], ["OMSGuru", "OMSGuru / earlier sheets"], ["Manual", "Manual sheet"]].map(([k, label]) =>
+         `<tr><td>${label}</td><td class="num">${n(a.received_by[k] || 0)}</td></tr>`).join("")}</tbody></table>`) +
+    card("Claim status", "SPF POLICY v5 · order value where the order amount is known",
+      `<table><thead><tr><th>Status</th><th class="num">Returns</th><th class="num">Value</th><th class="num hide-sm">Valued</th></tr></thead><tbody>
+       ${claims.map(([k, label]) => { const c = a.claims[k] || { count: 0, value: 0, valued: 0 };
+         return `<tr${k === "ELIGIBLE" ? ' class="total"' : ""}><td>${label}</td><td class="num">${n(c.count)}</td><td class="num">${rs(c.value)}</td>
+           <td class="num hide-sm ${c.valued != null && c.valued < c.count ? "down" : ""}">${c.valued == null ? "—" : n(c.valued)}</td></tr>`; }).join("")}
+       </tbody></table>
+       ${(() => { const e = a.claims.ELIGIBLE; return e && e.valued != null && e.valued < e.count
+         ? `<p class="hint error" style="margin-top:10px">⚠ ${n(e.count - e.valued)} eligible returns have no order amount yet (order report not read): their value is missing above.</p>` : ""; })()}`) +
+    card("Returns per month", "Return created month · received vs still open", `<div class="chart" id="c-mspf"></div>${legend([{ name: "Received", color: css("--good") }, { name: "Open", color: css("--warning") }, { name: "Other", color: css("--axis") }])}`) +
+    card(`Open returns by age · ${n(a.final.Open || 0)}`, "Days since delivered to seller (or created) · order value",
+      `<table><tbody>${ages.map(([k, v], i) => `<tr><td>${k} days</td><td class="barcell"><div class="bar" style="width:${(v.count / maxAge) * 100}%;background:${steps[i % 4]}"></div></td>
+        <td class="num">${n(v.count)}</td><td class="num">${rs(v.value)}</td></tr>`).join("")}</tbody></table>`) +
+    card("Accounts", "", `<div class="scroll"><table><thead><tr><th>Account</th><th class="num">Rows</th><th class="num">Open</th><th class="num">Eligible</th><th class="num">Value</th></tr></thead><tbody>${perAccount}</tbody></table></div>`) +
+    (m.notes?.length ? card("Notes", "Last run", `<ul class="notes">${m.notes.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`) : "");
+  barChart($("#c-mspf"), a.months.map((x) => ({ x: monthLabel(x.month), month: x.month, received: x.received, open: x.open, other: Math.max(0, x.returns - x.received - x.open) })),
+    [{ key: "received", name: "Received", color: css("--good") }, { key: "open", name: "Open", color: css("--warning") }, { key: "other", name: "Other", color: css("--axis") }],
+    { label: "Myntra returns per month", title: (r) => monthLabel(r.month) });
+  el.querySelectorAll("[data-macc]").forEach((b) => (b.onclick = () => { mspfAccount = b.dataset.macc; renderMspf(); }));
+}
+
+// ------------------------------------------------------------------ AJIO ads / TOT gap
+function renderAds() {
+  const el = $("#tab-ads"), ads = DATA.ajio_ads;
+  if (!ads || !ads.months?.length) { el.innerHTML = empty("AJIO ads / TOT gap"); return; }
+  const rows = ads.months;
+  const posted = rows.filter((r) => r.total != null);
+  const g4 = posted.reduce((a, r) => a + r.g4, 0), mkt = posted.reduce((a, r) => a + r.total, 0);
+  const pcts = posted.map((r) => r.pct);
+  el.className = "grid two";
+  el.innerHTML =
+    card("G4 amount by month", `SRM statement ${dshort(ads.from)} – ${dshort(ads.to)} · by document month`, `<div class="chart" id="c-ads"></div>`) +
+    card("Months with a posted charge", "Marketing charge (incl. assumed 18% GST) against G4",
+      `<table><tbody><tr><td>G4</td><td class="num">${rs(g4)}</td></tr><tr><td>Marketing / ads</td><td class="num">${rs(mkt)}</td></tr>
+       <tr class="total"><td>Charge / G4</td><td class="num">${pf(pct(mkt, g4))}</td></tr></tbody></table>
+       <p class="hint" style="margin-top:10px">A blank charge means none posted yet (charged the following month), not zero.</p>`) +
+    (posted.length > 1 ? card("Charge / G4 % by month", "Agreed rate 3% — a ratio of actual amounts only", `<div class="chart" id="c-ads-pct"></div>`) : "") +
+    card("Month by month", "",
+      `<div class="scroll"><table><thead><tr><th>Month</th><th class="num">G4</th><th class="num">Charge</th><th class="num">%</th></tr></thead><tbody>
+       ${rows.slice().reverse().map((r) => `<tr><td>${monthLabel(r.month)}</td><td class="num">${rs(r.g4)}</td><td class="num">${r.total == null ? "—" : rs(r.total)}</td>
+         <td class="num">${r.pct == null ? `<span class="tag" title="${esc(r.status)}">pending</span>` : `<b class="${r.pct > 3.05 ? "down" : ""}">${pf(r.pct)}</b>`}</td></tr>`).join("")}
+       </tbody></table></div>`);
+  barChart($("#c-ads"), rows.map((r) => ({ x: monthLabel(r.month), month: r.month, g4: r.g4 })), [{ key: "g4", name: "G4 ₹", color: css("--s1") }],
+    { label: "G4 amount by month", title: (r) => monthLabel(r.month) });
+  if (posted.length > 1) lineChart($("#c-ads-pct"), posted.map((r) => ({ x: monthLabel(r.month), pct: r.pct })), [{ key: "pct", name: "Charge %", color: css("--s2") }],
+    { min: 0, max: Math.ceil(Math.max(4, ...pcts)), label: "Charge over G4 percent" });
+}
+
 // ------------------------------------------------------------------ main
 function render() {
   renderTop();
   const tab = document.querySelector('.tab[aria-selected="true"]').dataset.tab;
-  ({ sale: renderSale, vms: renderVms, tat: renderTat, spf: renderSpf })[tab]();
+  ({ sale: renderSale, vms: renderVms, tat: renderTat, spf: renderSpf, mspf: renderMspf, ret: renderReturns, ads: renderAds })[tab]();
 }
 async function load() {
   $("#refresh").disabled = true;
@@ -579,7 +748,8 @@ async function load() {
 $("#refresh").onclick = load;
 let resizeTimer; addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
 try { const t = localStorage.getItem(TAB_KEY); if (t) document.querySelectorAll(".tab").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === t))); } catch {}
-["sale", "vms", "tat", "spf"].forEach((t) => ($("#tab-" + t).hidden = document.querySelector('.tab[aria-selected="true"]').dataset.tab !== t));
+if (!document.querySelector('.tab[aria-selected="true"]')) document.querySelector(".tab").setAttribute("aria-selected", "true");
+TABS.forEach((t) => ($("#tab-" + t).hidden = document.querySelector('.tab[aria-selected="true"]').dataset.tab !== t));
 load();
 setInterval(load, 5 * 60 * 1000);
 </script>

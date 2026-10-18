@@ -56,6 +56,21 @@ def report_table(path: Path) -> list[list]:
     return [list(r) for r in ws.iter_rows(values_only=True) if any(v is not None for v in r)]
 
 
+def month_rows(rows: list[list]) -> list[dict]:
+    """The report's month lines for the dashboard: G4, charge without GST / total, % (or None
+    where no charge was posted yet)."""
+    out = []
+    for r in rows:
+        if not r or not hasattr(r[0], "strftime") or not isinstance(r[1], (int, float)):
+            continue
+        cell = lambda i: r[i] if len(r) > i and isinstance(r[i], (int, float)) else None  # noqa: E731
+        pct = cell(5)
+        out.append({"month": r[0].strftime("%Y-%m"), "g4": round(r[1], 2), "charge": cell(2), "total": cell(4),
+                    "pct": round(pct * 100, 2) if pct is not None and pct < 1 else pct,
+                    "status": str(r[6]) if len(r) > 6 and r[6] else ""})
+    return out
+
+
 def summary_text(rows: list[list], start: date, end: date, n: int) -> str:
     """Month | G4 | marketing charge | % - fits a phone."""
     lines = [f"{'Month':<9}{'G4':>9}{'Mkt':>8}{'%':>5}"]
@@ -102,7 +117,7 @@ def run(args) -> int:
     else:
         telegram.send(text)
         telegram.send_document(report, f"<b>{REPORT_NAME}</b>")
-    dashboard.publish("ajio_ads", {"from": start, "to": end, "lines": n})
+    dashboard.publish("ajio_ads", {"from": start, "to": end, "lines": n, "months": month_rows(report_table(report))})
     return 0
 
 

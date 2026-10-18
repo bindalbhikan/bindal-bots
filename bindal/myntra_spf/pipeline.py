@@ -179,6 +179,80 @@ def final_status(r: dict) -> str:
     return ""
 
 
+def claim_status(r: dict, age) -> str:
+    """CLAIM STATUS as the master's formula computes it (SPF POLICY v5)."""
+    if str(r.get("TICKET ID") or "").strip():
+        return "CLAIM DONE"
+    if age is None or final_status(r):
+        return "NON ELIGIBLE"
+    if r.get("deliver_to_seller_date"):
+        return "ELIGIBLE" if age <= 7 else "EXPIRED"
+    return "UPCOMING CLAIM" if age < 60 else "ELIGIBLE" if age <= 120 else "EXPIRED"
+
+
+AGE_BUCKETS = ((30, "0-30"), (60, "31-60"), (120, "61-120"), (None, "120+"))
+
+
+def master_stats(path: Path, today: date, months: int = 6) -> dict:
+    """Dashboard numbers of the master, per account and in total: final status, where the
+    received ones were found, claim status with order value, open returns by age, and returns
+    per month (last `months`). Same rules as the master's own formulas."""
+    from openpyxl import load_workbook
+    from .engine import FIRST_DATA_ROW, HEADER_ROW
+    wb = load_workbook(path, read_only=True)
+    first_month = (today.replace(day=1) - timedelta(days=31 * (months - 1))).strftime("%Y-%m")
+    out = {}
+    for name in ACCOUNTS:
+        if name not in wb.sheetnames:
+            continue
+        ws = wb[name]
+        rows = ws.iter_rows(min_row=HEADER_ROW, values_only=True)
+        head = [str(h).strip() if h is not None else "" for h in next(rows)]
+        for _ in range(FIRST_DATA_ROW - HEADER_ROW - 1):
+            next(rows, None)
+        a = {"rows": 0, "final": {}, "received_by": {"ERP": 0, "OMSGuru": 0, "Manual": 0},
+             "claims": {}, "open_age": {label: {"count": 0, "value": 0.0} for _, label in AGE_BUCKETS},
+             "months": {}}
+        for values in rows:
+            r = dict(zip(head, values))
+            if not r.get("order_line_id"):
+                continue
+            a["rows"] += 1
+            final = final_status(r) or "Open"
+            a["final"][final] = a["final"].get(final, 0) + 1
+            if final == "Return Received":
+                oms = str(r.get("OMSGURU STATUS") or "").upper()
+                src = "ERP" if "ERP" in oms else "OMSGuru" if "RECEIVED" in oms else "Manual"
+                a["received_by"][src] += 1
+            start = r.get("deliver_to_seller_date") or r.get("return_created_date")
+            age = max(0, (today - start.date()).days) if hasattr(start, "date") else None
+            value = _num(r.get("ORDER AMOUNT")) or 0.0
+            claim = claim_status(r, age)
+            c = a["claims"].setdefault(claim, {"count": 0, "value": 0.0, "valued": 0})
+            c["count"] += 1
+            c["value"] += value
+            c["valued"] += value > 0          # rows whose ORDER AMOUNT is known
+            if final == "Open" and age is not None:
+                label = next(lb for lim, lb in AGE_BUCKETS if lim is None or age <= lim)
+                a["open_age"][label]["count"] += 1
+                a["open_age"][label]["value"] += value
+            created = r.get("return_created_date")
+            if hasattr(created, "strftime"):
+                m = created.strftime("%Y-%m")
+                if m >= first_month:
+                    mm = a["months"].setdefault(m, {"returns": 0, "open": 0, "received": 0})
+                    mm["returns"] += 1
+                    mm["open"] += final == "Open"
+                    mm["received"] += final == "Return Received"
+        for c in a["claims"].values():
+            c["value"] = round(c["value"])
+        for b in a["open_age"].values():
+            b["value"] = round(b["value"])
+        a["months"] = [{"month": k, **v} for k, v in sorted(a["months"].items())]
+        out[name] = a
+    return out
+
+
 def open_returns(path: Path, since: date) -> dict[tuple, dict]:
     """(order_line_id, return_id) -> lookup terms for every row whose FINAL RETURN STATUS is
     blank, created since `since`. Only these are looked up in OMSGuru."""
@@ -319,7 +393,12 @@ def run(args) -> int:
         master.upload(work / MASTER_NAME)
     text = summary_text(work / MASTER_NAME, notes)
     print(text) if args.no_telegram else telegram.send(text)
-    dashboard.publish("myntra_spf", {"notes": notes})
+    try:
+        accounts = master_stats(work / MASTER_NAME, today)
+    except Exception:  # noqa: BLE001 - the master is out; the dashboard only misses details
+        log.exception("Master numbers for the dashboard failed")
+        accounts = {}
+    dashboard.publish("myntra_spf", {"day": today, "notes": notes, "accounts": accounts})
     return 0
 
 

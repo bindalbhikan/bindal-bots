@@ -12,7 +12,8 @@
 import PAGE from "./page.html";
 
 const KEYS = ["sale", "sale_today", "vms", "vms_erp", "ajio_tat", "ajio_spf",
-              "run_sale", "run_vms", "run_ajio_tat", "run_ajio_spf"];
+              "returns", "returns_year", "myntra_spf", "ajio_ads",
+              "run_sale", "run_vms", "run_ajio_tat", "run_ajio_spf", "run_returns", "run_myntra_spf", "run_ajio_ads"];
 const COOKIE = "bd_session";
 const SESSION_DAYS = 30;
 

@@ -102,6 +102,7 @@ def rebuild_year(root: DriveFolder, year: int, supporting: Path, work: Path, upl
             target.put(Path(r["report"]), XLSX)
     for r in results:
         r["months"] = sorted({m for df in frames.values() for m in df["MONTH"].dropna().unique()})
+        r["frames"] = frames          # the dashboard's details come from the same rows
     return results
 
 
