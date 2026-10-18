@@ -37,6 +37,32 @@ Since Oct 2026 the month sheets have a COCOBLU block right after AZ/FX/FBA (OMSG
 (Snapdeal orders are not reported). Older month sheets keep their old layout; a run that
 writes into one puts Cocoblu back inside AZ/FX/FBA. New months copy the latest sheet.
 
+### Myntra partner portal reports
+
+Three seller accounts, each its own login: MAIN 19170, DBCC 32207, FMCC 35426. All use the same
+report API (`bindal/sale/myntra_portal.py`) with `storeId 2297`, `partnerType PPMP`:
+
+| Report | reportId | One job covers |
+|---|---|---|
+| `Seller_Orders_Report` | 4 | at most 1 month (also used for SJIT) |
+| `Seller_Returns_Report` | 12 | at most 1 month (by return date) |
+
+`POST /api/partners/report/jobs/schedule` → poll `GET /report/jobs/search` until `COMPLETED` →
+download through `/api/file-manager/getDownloadUrl?url=<successFile>` (redirect to a signed link).
+A job takes ~5-10 minutes. **After a report is requested, the portal refuses the same report
+for 15 minutes** (`coolDownPeriod`): request different reports together, the same report again
+only after 15 minutes, and reuse completed jobs whenever they cover the dates. `schedule()`
+waits out one refusal (16 min); the exact refusal text is not known yet.
+
+### Return analysis (planned)
+
+Monthly sale vs return report, today a hand-run tool in `BINDAL EXPORTS\RETURN ANALYSIS`
+(`main.py`, its own CONTEXT.md; Drive folder id `1FQMg6atQgB1v6fGW1aIWoaZp5yFoM9bx`, the service
+account can edit it). To run on the 15th of every month at 2:00 PM IST: sale = previous month
+1st to last day, returns = previous month 1st to this month's 14th (two returns jobs per Myntra
+account, 15 minutes apart, or the earlier one reused). Portals: Myntra MAIN / DBCC / FMCC, Ajio,
+Flipkart.
+
 ## How it runs
 
 - **GitHub Actions** in `bindal-bots`, one `workflow_dispatch` workflow per bot

@@ -34,6 +34,11 @@ PORTAL = "https://partners.myntrainfo.com"
 # The three Myntra seller accounts, each with its own portal login (partner id)
 ACCOUNTS = {"MAIN": 19170, "DBCC": 32207, "FMCC": 35426}
 REPORT_ID = 4                       # Seller_Orders_Report
+RETURNS_REPORT_ID = 12              # Seller_Returns_Report (same queryParams; one job = max 1 month)
+# After a report is requested the portal refuses the same report for 15 minutes (coolDownPeriod).
+# Its exact refusal text is not known yet, hence the loose match.
+COOLDOWN_MINUTES = 16
+COOLDOWN = re.compile(r"cool|wait|minute|already|recent|frequent|too many|try again|later", re.I)
 QUERY = {"storeId": 2297, "partnerType": "PPMP"}  # store MYNTRA; the PPMP report also holds SJIT / FBM lines
 HEADERS = {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest",
            "x-myntra-app-name": "partners", "Origin": PORTAL, "Referer": f"{PORTAL}/Reports/ops-reports"}
@@ -251,13 +256,22 @@ class MyntraPortal:
         return self._call("GET", "/report/jobs/search",
                           params={"fetchSize": size, "sortBy": "id", "sortOrder": "desc", "start": 0}).get("data") or []
 
-    def schedule(self, start: date, end: date) -> dict:
-        body = {"reportId": REPORT_ID, "queryParams": {**QUERY, "reportStartDate": f"{start}",
+    def schedule(self, start: date, end: date, report_id: int = REPORT_ID, cooldown_wait: int = COOLDOWN_MINUTES) -> dict:
+        """Request a report job. The portal refuses the same report again for 15 minutes after
+        a request (coolDownPeriod); such a refusal is waited out once, up to cooldown_wait minutes."""
+        body = {"reportId": report_id, "queryParams": {**QUERY, "reportStartDate": f"{start}",
                                                        "reportEndDate": f"{end}"}}
-        data = self._call("POST", "/report/jobs/schedule", json=body).get("data") or []
+        try:
+            data = self._call("POST", "/report/jobs/schedule", json=body).get("data") or []
+        except RuntimeError as exc:
+            if isinstance(exc, SessionExpired) or not cooldown_wait or not COOLDOWN.search(str(exc)):
+                raise
+            log.warning("Report %s in cooldown (%s): waiting %d min", report_id, exc, cooldown_wait)
+            time.sleep(cooldown_wait * 60)
+            data = self._call("POST", "/report/jobs/schedule", json=body).get("data") or []
         if not data:
             raise RuntimeError("Myntra portal did not return the scheduled report job")
-        log.info("SJIT report job %s scheduled for %s..%s", data[0].get("id"), start, end)
+        log.info("Report %s job %s scheduled for %s..%s", report_id, data[0].get("id"), start, end)
         return data[0]
 
     def _wait(self, job: dict, deadline: float, poll_seconds: int) -> dict:
