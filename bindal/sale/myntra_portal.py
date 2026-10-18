@@ -38,7 +38,9 @@ RETURNS_REPORT_ID = 12              # Seller_Returns_Report (same queryParams; o
 # After a report is requested the portal refuses the same report for 15 minutes (coolDownPeriod).
 # Its exact refusal text is not known yet, hence the loose match.
 COOLDOWN_MINUTES = 16
-COOLDOWN = re.compile(r"cool|wait|minute|already|recent|frequent|too many|try again|later", re.I)
+# Myntra answers a request within the cooldown with "Internal server error while scheduling ..."
+COOLDOWN = re.compile(r"cool|wait|minute|already|recent|frequent|too many|try again|later|"
+                      r"internal server error|while schedul", re.I)
 QUERY = {"storeId": 2297, "partnerType": "PPMP"}  # store MYNTRA; the PPMP report also holds SJIT / FBM lines
 HEADERS = {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest",
            "x-myntra-app-name": "partners", "Origin": PORTAL, "Referer": f"{PORTAL}/Reports/ops-reports"}
