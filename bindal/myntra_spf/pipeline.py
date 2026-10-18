@@ -59,34 +59,58 @@ def _windows(today: date) -> dict[int, list[tuple[date, date]]]:
             mp.REPORT_ID: split(num("MYNTRA_SPF_ORDER_DAYS", 60))}
 
 
-def fetch_account(account: str, today: date, dest: Path, notes: list[str]) -> None:
+def fetch_account(account: str, today: date, dest: Path, notes: list[str],
+                  old_orders: list[tuple[date, date]] | None = None) -> None:
     """The account's returns, delivery and order reports into dest. Different reports are asked
-    for together; the same report again only after the cooldown. Jobs for the same dates are reused."""
+    for together; the same report again only after the cooldown. Jobs for the same dates are reused.
+
+    old_orders: older order-report months for returns that still have no ORDER AMOUNT. A report
+    already on the portal is just downloaded; at most MYNTRA_SPF_OLD_ORDERS_NEW new ones are asked
+    for per run (each costs a cooldown), the rest on the next runs. A refused request is asked
+    again after the cooldown, up to 3 times."""
     from ..return_analysis.sources import myntra_portal
     from ..portals import myntra as mp
     portal = myntra_portal(account)
-    queues = [[(rid, a, b) for a, b in ranges] for rid, ranges in _windows(today).items()]
-    jobs, step = [], 0
-    while any(step < len(q) for q in queues):
+    queues = [[(rid, a, b, False) for a, b in ranges] for rid, ranges in _windows(today).items()]
+    for q in queues:
+        if q and q[0][0] == mp.REPORT_ID:
+            q.extend((mp.REPORT_ID, a, b, True) for a, b in (old_orders or []))
+    new_old, cap = 0, num("MYNTRA_SPF_OLD_ORDERS_NEW", 3)
+    tries: dict[tuple, int] = {}
+    left: list[str] = []
+    jobs = []
+    while any(queues):
         asked = False
         for q in queues:
-            if step >= len(q):
+            if not q:
                 continue
-            rid, a, b = q[step]
+            rid, a, b, old = q[0]
             job = mp.exact_job(portal.jobs(100), rid, a, b)
+            if not job and old and new_old >= cap:
+                left.append(f"{a:%b %Y}")       # asked for on a later run
+                q.pop(0)
+                continue
             if not job:
                 asked = True                     # a refusal too: the next one of this report waits
                 try:
-                    job = portal.schedule(a, b, rid)
+                    job = portal.schedule(a, b, rid, cooldown_wait=False)
+                    new_old += old
                 except Exception as exc:  # noqa: BLE001 - that report only
-                    log.warning("%s report %s %s..%s refused: %s", account, rid, a, b, exc)
+                    key = (rid, a, b)
+                    tries[key] = tries.get(key, 0) + 1
+                    log.warning("%s report %s %s..%s refused (try %d): %s", account, rid, a, b, tries[key], exc)
+                    if tries[key] < 3:
+                        continue                 # stays first: asked again after the cooldown
                     notes.append(f"{account} report {rid} {a}..{b}: {str(exc)[:80]}")
+                    q.pop(0)
                     continue
             jobs.append(job)
-        step += 1
-        if asked and any(step < len(q) for q in queues):
+            q.pop(0)
+        if asked and any(queues):
             log.info("%s: waiting for the report cooldown", account)
             time.sleep(COOLDOWN_SECONDS)
+    if left:
+        notes.append(f"{account}: older order reports still to fetch (next runs): {', '.join(left)}")
     dest.mkdir(parents=True, exist_ok=True)
     for job in jobs:
         try:
@@ -183,6 +207,46 @@ def not_worked(r: dict) -> bool:
     """SJIT and FBM orders are not worked for SPF (engine.NOT_WORKED_MODELS)."""
     from .engine import NOT_WORKED_MODELS
     return str(r.get("model") or "").strip().upper() in NOT_WORKED_MODELS
+
+
+def missing_order_months(path: Path, today: date) -> dict[str, list[tuple[date, date]]]:
+    """Account -> calendar months of order reports still needed: for every worked return with no
+    ORDER AMOUNT, the months from MYNTRA_SPF_ORDER_LOOKBACK days (default 45) before it was
+    created up to its creation. Months the daily order window already covers are left out."""
+    from openpyxl import load_workbook
+    from .engine import FIRST_DATA_ROW, HEADER_ROW
+    lookback = timedelta(days=num("MYNTRA_SPF_ORDER_LOOKBACK", 45))
+    daily_from = today - timedelta(days=num("MYNTRA_SPF_ORDER_DAYS", 60))
+    yesterday = today - timedelta(days=1)
+    wb = load_workbook(path, read_only=True)
+    out = {}
+    for name in ACCOUNTS:
+        if name not in wb.sheetnames:
+            continue
+        rows = wb[name].iter_rows(min_row=HEADER_ROW, values_only=True)
+        head = [str(h).strip() if h is not None else "" for h in next(rows)]
+        for _ in range(FIRST_DATA_ROW - HEADER_ROW - 1):
+            next(rows, None)
+        months = set()
+        for values in rows:
+            r = dict(zip(head, values))
+            if not r.get("order_line_id") or not_worked(r) or _num(r.get("ORDER AMOUNT")) is not None:
+                continue
+            created = r.get("return_created_date")
+            if not hasattr(created, "date"):
+                continue
+            m, last = (created.date() - lookback).replace(day=1), created.date().replace(day=1)
+            while m <= last:
+                months.add(m)
+                m = (m + timedelta(days=32)).replace(day=1)
+        ranges = []
+        for m in sorted(months):
+            if m < daily_from:               # the daily window covers the rest
+                end = min((m + timedelta(days=32)).replace(day=1) - timedelta(days=1), yesterday)
+                ranges.append((m, end))
+        if ranges:
+            out[name] = ranges
+    return out
 
 
 def claim_status(r: dict, age) -> str:
@@ -363,7 +427,15 @@ def run(args) -> int:
     log.info("Hand inputs from Drive: %s", hand_inputs(folder, inp))
 
     today = date.today()
-    tasks = {a: (fetch_account, (a, today, inp / a, notes)) for a in ACCOUNTS}
+    try:
+        old_orders = missing_order_months(work / MASTER_NAME, today)
+        for a, ranges in old_orders.items():
+            log.info("%s: returns without ORDER AMOUNT need order reports of %s", a,
+                     ", ".join(f"{s:%b %Y}" for s, _ in ranges))
+    except Exception:  # noqa: BLE001 - the daily reports still run
+        log.exception("Months of missing order amounts not worked out")
+        old_orders = {}
+    tasks = {a: (fetch_account, (a, today, inp / a, notes, old_orders.get(a))) for a in ACCOUNTS}
     with ThreadPoolExecutor(max_workers=len(tasks) + 1) as pool:
         futures = {name: pool.submit(fn, *a) for name, (fn, a) in tasks.items()}
         erp = pool.submit(fetch_erp, inp)
