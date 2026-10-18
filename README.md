@@ -1,6 +1,6 @@
 # BINDAL EXPORTS report bots
 
-One project for all five report bots and the Telegram command bot that starts them.
+One project for all the report workings and the Telegram command bot that starts them.
 Every bot sends its report to Telegram **@bindal_exports_bot**.
 
 | Bot | Command | What it does | Daily (IST) |
@@ -33,24 +33,8 @@ error lists go to `output/<bot>/` (on GitHub: the run's artifact).
 
 ## Layout
 
-```
-run.py                     entry point: python run.py <bot> [options]
-bindal/
-  core/                    shared by every bot
-    config.py              settings (.env / GitHub Secrets), logging, output folders
-    app.py                 run frame: a failed run always reaches Telegram
-    omsguru.py             the one OMSGuru client (login, warehouses, lists, order pages, search)
-    drive.py  gauth.py     Google Drive workbooks (download, safe in-place upload)
-    telegram.py            messages (split without breaking HTML), photos, files
-    snapshot.py files.py   sheet pictures (LibreOffice), atomic workbook save
-  awb_tracker/             courier tracking (BlueDart, Delhivery, Ekart, Shadowfax, Valmo, XpressBees)
-  sale/  vms/  ajio_tat/  ajio_spf/    one package per bot
-worker/                    Cloudflare Worker: Telegram commands + the daily cron + dashboard data push
-dashboard/                 Cloudflare Worker: the dashboard page (sign-in through /dashboard in Telegram)
-.github/workflows/         one workflow per bot (workflow_dispatch) + tests
-tests/                     python -m pytest
-scripts/                   local runs
-```
+See `docs/ARCHITECTURE.md` (system, code layout, how to add a working), `docs/PORTALS.md`
+(outside systems) and `docs/bots/` (one page per working).
 
 ## How it runs
 
@@ -58,8 +42,9 @@ scripts/                   local runs
 - The **Cloudflare Worker** (`worker/src/worker.js`) is the only scheduler: its cron triggers
   start the daily runs, Telegram commands start on-demand runs, and the chat that sent the
   command gets that run's report.
-- Commands: `/sale [today|from to]`, `/vms [from to]`, `/ajiotat [days]`, `/ajiospf [dry]`,
-  `/salepic [YYYY-MM]`, `/vmspic [YYYY-MM]`, `/menu`, `/status`, `/help`.
+- Commands: `/sale [today|from to]`, `/vms [from to|erp]`, `/ajiotat [days]`, `/ajiospf [dry]`,
+  `/myntraspf`, `/returns [YYYY-MM]`, `/ajioads`, `/salepic [YYYY-MM]`, `/vmspic [YYYY-MM]`, `/menu`,
+  `/status`, `/help`, `/dashboard`.
 - Workbooks live on **Google Drive** (service account
   `ajio-tat-bot@storied-port-441507-k7.iam.gserviceaccount.com`, Editor). A run downloads the
   file, works on it, and uploads it in place only if nobody changed it on Drive meanwhile.
