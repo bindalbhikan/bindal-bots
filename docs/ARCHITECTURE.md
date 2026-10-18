@@ -68,8 +68,6 @@ tests/                      python -m pytest (runs on every push: .github/workfl
 docs/                       this file, PORTALS.md, bots/<bot>.md
 ```
 
-Old module paths (`bindal/sale/myntra_portal.py`, `sale/flipkart.py`, `ajio_spf/sources/*`,
-`core/erp.py`, `core/omsguru.py`) are aliases of the `portals` modules, kept so nothing breaks.
 
 ## How a working is built
 
