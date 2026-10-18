@@ -28,6 +28,9 @@ from .engine import DATA_COLUMNS, build_all, build_period, read_data
 
 log = logging.getLogger(__name__)
 
+# A month Myntra refuses is asked for again after the cooldown, up to this many times
+YEARLY_TRIES = 3
+
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 PORTALS = ["MYNTRA MAIN", "MYNTRA DBCC", "MYNTRA FMCC", "AJIO", "FLIPKART"]
 
@@ -130,27 +133,35 @@ def _myntra_account(account: str, months: list[date], dest: Path, notes: list[st
     returns = [(mp.RETURNS_REPORT_ID, m, last_day(m), m) for m in months]
     returns.append((mp.RETURNS_REPORT_ID, next_month(last), next_month(last).replace(day=14), next_month(last)))
     jobs = []
-    for step in range(max(len(orders), len(returns))):
+    queues = [list(orders), list(returns)]
+    tries: dict[tuple, int] = {}
+    while any(queues):
         asked = False
-        for queue in (orders, returns):
-            if step >= len(queue):
+        for queue in queues:
+            if not queue:
                 continue
-            report_id, start, end, month = queue[step]
+            report_id, start, end, month = queue[0]
             job = mp.exact_job(portal.jobs(100), report_id, start, end)
             if not job:
-                # A refusal (cooldown) is waited out once by schedule(); either way the next
-                # request of this report waits too - not waiting turned one refusal into a
-                # run of them (2026 backfill, 18 Oct)
+                # Every request (or refusal) is followed by the cooldown before this report is
+                # asked for again. A refused month stays first in its queue and is asked for
+                # again after the cooldown - moving on lost May MAIN / Jun DBCC (18 Oct backfill).
                 asked = True
                 try:
-                    job = portal.schedule(start, end, report_id)
+                    job = portal.schedule(start, end, report_id, cooldown_wait=False)
                 except Exception as exc:  # noqa: BLE001 - that month only
-                    log.warning("Myntra %s report %s %s refused: %s", account, report_id, start, exc)
+                    key = (report_id, start)
+                    tries[key] = tries.get(key, 0) + 1
+                    log.warning("Myntra %s report %s %s refused (try %d): %s", account, report_id, start, tries[key], exc)
+                    if tries[key] < YEARLY_TRIES:
+                        continue
                     notes.append(f"Myntra {account} report {report_id} {start:%b %Y}: {str(exc)[:80]}")
+                    queue.pop(0)
                     continue
             jobs.append((job, month))
-        if asked and step + 1 < max(len(orders), len(returns)):
-            log.info("%s: waiting for the report cooldown before the next month", account)
+            queue.pop(0)
+        if asked and any(queues):
+            log.info("%s: waiting for the report cooldown", account)
             time.sleep(sources.COOLDOWN_SECONDS)
     for job, month in jobs:
         try:

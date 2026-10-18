@@ -123,7 +123,13 @@ def returns_complete(xlsx: bytes, start: date, slack_days: int = 7) -> tuple[boo
         return False, f"Returns sheet not readable ({exc})"
     if r.empty:
         return False, "Returns report is empty"
-    first = pd.to_datetime(r.get("return_requested_date"), errors="coerce").min()
+    # the date the engine uses: return_requested_date is blank in Flipkart's file
+    when = r.get("return_approval_date")
+    if when is None:
+        when = r.get("return_requested_date")
+    elif "return_requested_date" in r:
+        when = when.fillna(r["return_requested_date"])
+    first = pd.to_datetime(when, errors="coerce").min()
     if pd.isna(first) or first.date() > start + timedelta(days=slack_days):
         return False, f"Returns report starts {first:%d %b}" if not pd.isna(first) else "no return dates"
     return True, ""

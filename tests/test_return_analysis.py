@@ -75,3 +75,9 @@ def test_flipkart_returns_completeness():
     assert sources.returns_complete(xlsx(["2026-09-01", "2026-09-20"]), date(2026, 9, 1))[0]
     assert not sources.returns_complete(xlsx([]), date(2026, 1, 1))[0]                       # empty
     assert not sources.returns_complete(xlsx(["2026-06-21", "2026-07-01"]), date(2026, 6, 1))[0]  # starts late
+    # Flipkart's real file: return_requested_date blank, return_approval_date filled (as the engine reads it)
+    real = io.BytesIO()
+    pd.DataFrame({"return_id": [1, 2], "return_requested_date": [None, None],
+                  "return_approval_date": ["2026-09-01 00:00:00.0", "2026-10-02 00:00:00.0"]}).to_excel(
+        real, sheet_name="Returns", index=False)
+    assert sources.returns_complete(real.getvalue(), date(2026, 9, 1))[0]
