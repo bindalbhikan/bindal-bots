@@ -320,6 +320,20 @@ class MyntraPortal:
         job = self._wait(job, time.time() + wait_minutes * 60, poll_seconds)
         return self.download(job)
 
+    def collect_or_regenerate(self, job: dict, wait_minutes: int = 45) -> tuple[str, bytes]:
+        """collect(); when an existing (often old) job will not download - failed, expired link -
+        the same report is asked for again (cooldown waited out) and the new job collected."""
+        try:
+            return self.collect(job, wait_minutes)
+        except SessionExpired:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            q = job.get("queryParams") or {}
+            start, end = date.fromisoformat(q["reportStartDate"]), date.fromisoformat(q["reportEndDate"])
+            log.warning("Report job %s not downloaded (%s): asking for it again", job.get("id"), exc)
+            new = self.schedule(start, end, job.get("reportId") or REPORT_ID)
+            return self.collect(new, wait_minutes)
+
     def request(self, days: list[date]) -> dict | None:
         """Make sure a report for `days` exists or is on its way: schedules one only for the
         days no completed or running job covers. The new job, or None when nothing was needed."""

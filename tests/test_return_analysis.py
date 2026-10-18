@@ -62,3 +62,16 @@ def test_yearly_text_fits_a_phone():
     assert "Jan - Sep 2026" in text
     table = text.split("<pre>")[1].split("</pre>")[0]
     assert max(len(line) for line in table.splitlines()) <= 25
+
+
+def test_flipkart_returns_completeness():
+    import io
+    import pandas as pd
+    def xlsx(dates):
+        buf = io.BytesIO()
+        pd.DataFrame({"return_id": range(len(dates)), "return_requested_date": dates}).to_excel(
+            buf, sheet_name="Returns", index=False)
+        return buf.getvalue()
+    assert sources.returns_complete(xlsx(["2026-09-01", "2026-09-20"]), date(2026, 9, 1))[0]
+    assert not sources.returns_complete(xlsx([]), date(2026, 1, 1))[0]                       # empty
+    assert not sources.returns_complete(xlsx(["2026-06-21", "2026-07-01"]), date(2026, 6, 1))[0]  # starts late

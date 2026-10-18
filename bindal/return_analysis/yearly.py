@@ -62,6 +62,21 @@ def save_month_data(root: DriveFolder, results: list[dict], work: Path) -> list[
     return saved
 
 
+def blank_month_data(root: DriveFolder, portal: str, month: date, work: Path) -> None:
+    """Empty a portal's saved month on Drive (header only), so the yearly report leaves it out.
+    (The bot cannot delete a file you own; an empty file reads as no rows.)"""
+    folder = root.subfolder("Yearly")
+    folder = folder.subfolder(f"{month.year}") if folder else None
+    name = f"{portal} {tag(month)}.csv"
+    if not folder or name not in folder.children():
+        return
+    path = work / "yearly_blank" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(columns=DATA_COLUMNS).to_csv(path, index=False)
+    folder.put(path, "text/csv")
+    log.info("Emptied %s on Drive (data not available)", name)
+
+
 def rebuild_year(root: DriveFolder, year: int, supporting: Path, work: Path, upload: bool = True) -> list[dict]:
     """The year's reports from every monthly data file on Drive (Output/<YYYY>/)."""
     folder = root.subfolder("Yearly")
@@ -138,7 +153,7 @@ def _myntra_account(account: str, months: list[date], dest: Path, notes: list[st
             time.sleep(sources.COOLDOWN_SECONDS)
     for job, month in jobs:
         try:
-            name, data = portal.collect(job, wait_minutes=60)
+            name, data = portal.collect_or_regenerate(job, wait_minutes=60)
         except Exception as exc:  # noqa: BLE001
             notes.append(f"Myntra {account} job {job.get('id')} ({month:%b %Y}): {str(exc)[:80]}")
             continue
@@ -164,7 +179,11 @@ def _ajio(months: list[date], dest: Path, notes: list[str]) -> None:
             shutil.rmtree(folder, ignore_errors=True)
 
 
-def _flipkart(months: list[date], dest: Path, notes: list[str]) -> None:
+def _flipkart(months: list[date], dest: Path, notes: list[str]) -> set[date]:
+    """Every month's Sales Report and Returns report into dest/<MON-YY>/. Flipkart keeps returns
+    for about four months only: a month whose Returns report is empty or starts late is asked for
+    once more, and if it is still incomplete the month is left out (Flipkart missing from it in
+    the yearly report rather than shown with no returns). The months left out."""
     fk = sources.flipkart_client()
     wanted = [(m, "Sales Report", m, last_day(m)) for m in months] + \
              [(m, "Returns", m, next_month(m).replace(day=14)) for m in months]
@@ -173,15 +192,29 @@ def _flipkart(months: list[date], dest: Path, notes: list[str]) -> None:
             fk.request_report(name, a, b)
         except Exception as exc:  # noqa: BLE001
             notes.append(f"Flipkart {name} {a:%b %Y}: {str(exc)[:80]}")
+    left_out: set[date] = set()
     for m, name, a, b in wanted:
         try:
             file_name, data = fk.report(name, a, b, wait_minutes=60)
+            if name == "Returns" and not sources.returns_complete(data, a)[0]:
+                rid = fk.request_report(name, a, b, fresh=True)       # a new report, once
+                file_name, data = fk._report(name, a, b, rid, 60, 30)
+                ok, why = sources.returns_complete(data, a)
+                if not ok:
+                    left_out.add(m)
+                    notes.append(f"Flipkart {m:%b %Y} left out: {why} (Flipkart keeps returns ~4 months)")
+                    continue
         except Exception as exc:  # noqa: BLE001
             notes.append(f"Flipkart {name} {a:%b %Y}: {str(exc)[:80]}")
+            if name == "Returns":
+                left_out.add(m)
             continue
         folder = dest / tag(m)
         folder.mkdir(parents=True, exist_ok=True)
         (folder / file_name).write_bytes(data)
+    for m in left_out:                 # no returns for the month: its sales alone would be wrong
+        shutil.rmtree(dest / tag(m), ignore_errors=True)
+    return left_out
 
 
 def _month_input(raw: Path, month: date, inputs: Path) -> None:
@@ -219,9 +252,12 @@ def backfill(root: DriveFolder, year: int, supporting: Path, work: Path, today: 
     jobs["Flipkart"] = (_flipkart, (months, raw / "Flipkart", notes))
     with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
         futures = {name: pool.submit(fn, *args) for name, (fn, args) in jobs.items()}
+    flipkart_left_out: set[date] = set()
     for name, fut in futures.items():
         try:
-            fut.result()
+            res = fut.result()
+            if name == "Flipkart":
+                flipkart_left_out = res or set()
         except Exception as exc:  # noqa: BLE001 - the other sources still count
             log.exception("%s backfill failed", name)
             notes.append(f"{name}: {str(exc)[:100]}")
@@ -239,4 +275,6 @@ def backfill(root: DriveFolder, year: int, supporting: Path, work: Path, today: 
         if results:
             save_month_data(root, [r for r in results if r.get("df") is not None and r["month"] == tag(m)], work)
             filled.append(m)
+    for m in sorted(flipkart_left_out):   # an earlier run's (wrong) data for that month is emptied
+        blank_month_data(root, "FLIPKART", m, work)
     return filled, rebuild_year(root, year, supporting, work)

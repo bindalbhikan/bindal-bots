@@ -90,7 +90,7 @@ def fetch_account(account: str, today: date, dest: Path, notes: list[str]) -> No
     dest.mkdir(parents=True, exist_ok=True)
     for job in jobs:
         try:
-            name, data = portal.collect(job, wait_minutes=num("MYNTRA_SPF_WAIT_MINUTES", 45))
+            name, data = portal.collect_or_regenerate(job, wait_minutes=num("MYNTRA_SPF_WAIT_MINUTES", 45))
             (dest / name).write_bytes(data)
         except Exception as exc:  # noqa: BLE001
             notes.append(f"{account} report job {job.get('id')}: {str(exc)[:80]}")

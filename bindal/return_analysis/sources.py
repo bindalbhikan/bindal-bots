@@ -83,7 +83,7 @@ def fetch_myntra(account: str, sale: tuple[date, date], parts: list[tuple[date, 
     dest.mkdir(parents=True, exist_ok=True)
     names = []
     for job in jobs:
-        name, data = portal.collect(job, wait_minutes)
+        name, data = portal.collect_or_regenerate(job, wait_minutes)
         (dest / name).write_bytes(data)
         names.append(name)
     mp.save_to_worker(env, portal.cookies(), account)
@@ -110,6 +110,25 @@ def fetch_ajio(sale: tuple[date, date], ret: tuple[date, date], dest: Path) -> l
 
 # ------------------------------------------------------------------ Flipkart
 
+def returns_complete(xlsx: bytes, start: date, slack_days: int = 7) -> tuple[bool, str]:
+    """(complete, why not) for a Flipkart Returns report meant to start at `start`: it must have
+    rows, and its earliest return request within slack_days of the start. Flipkart drops returns
+    older than about four months, which leaves such a report empty or starting late."""
+    import io
+
+    import pandas as pd
+    try:
+        r = pd.read_excel(io.BytesIO(xlsx), sheet_name="Returns", dtype=str)
+    except Exception as exc:  # noqa: BLE001
+        return False, f"Returns sheet not readable ({exc})"
+    if r.empty:
+        return False, "Returns report is empty"
+    first = pd.to_datetime(r.get("return_requested_date"), errors="coerce").min()
+    if pd.isna(first) or first.date() > start + timedelta(days=slack_days):
+        return False, f"Returns report starts {first:%d %b}" if not pd.isna(first) else "no return dates"
+    return True, ""
+
+
 def flipkart_client():
     from ..sale.flipkart import FlipkartClient
     user, pwd = env("FLIPKART_EMAIL"), env("FLIPKART_PASSWORD")
@@ -134,6 +153,12 @@ def fetch_flipkart(sale: tuple[date, date], ret: tuple[date, date], dest: Path, 
     names = []
     for name, (a, b) in [("Sales Report", sale), ("Returns", ret)]:
         file_name, data = fk.report(name, a, b, wait_minutes)
+        if name == "Returns" and not returns_complete(data, a)[0]:
+            rid = fk.request_report(name, a, b, fresh=True)          # a new report, once
+            file_name, data = fk._report(name, a, b, rid, wait_minutes, 30)
+            ok, why = returns_complete(data, a)
+            if not ok:   # without returns the month's Flipkart numbers would be wrong
+                raise RuntimeError(f"Flipkart returns incomplete: {why}")
         (dest / file_name).write_bytes(data)
         names.append(file_name)
     return names

@@ -118,12 +118,14 @@ class FlipkartClient:
     def _dates(req: dict) -> list[str]:
         return next((f.get("value") for f in req.get("filters") or [] if f.get("name") == "date"), [])
 
-    def request_report(self, name: str, start: date, end: date) -> str:
+    def request_report(self, name: str, start: date, end: date, fresh: bool = False) -> str:
         """Request id of a report centre report (e.g. "Sales Report", "Returns") for exactly
-        start..end: a finished or running request for the same dates is reused, else one is submitted."""
+        start..end: a finished or running request for the same dates is reused (unless fresh),
+        else one is submitted."""
         want = [f"{start}", f"{end}"]
-        req = next((q for q in self.report_requests() if q.get("report_name") == name
-                    and self._dates(q) == want and q.get("status") not in ("FAILED", "ERROR")), None)
+        req = None if fresh else next((q for q in self.report_requests() if q.get("report_name") == name
+                                       and self._dates(q) == want and q.get("status") not in ("FAILED", "ERROR")),
+                                      None)
         if req:
             log.info("Flipkart %s %s..%s already requested (%s)", name, start, end, req.get("status"))
             return req["request_id"]
@@ -137,12 +139,22 @@ class FlipkartClient:
     def report(self, name: str, start: date, end: date, wait_minutes: int = 45,
                poll_seconds: int = 30) -> tuple[str, bytes]:
         """(file name, xlsx bytes) of a report centre report for exactly start..end, waited for
-        until it is stored (Flipkart says up to 30 minutes)."""
-        rid = self.request_report(name, start, end)
+        until it is stored (Flipkart says up to 30 minutes). When an existing (old) request will
+        not download, a new one is submitted and waited for."""
+        try:
+            return self._report(name, start, end, self.request_report(name, start, end), wait_minutes, poll_seconds)
+        except (FlipkartError, requests.RequestException) as exc:
+            log.warning("Flipkart %s %s..%s not downloaded (%s): asking for it again", name, start, end, exc)
+            rid = self.request_report(name, start, end, fresh=True)
+            return self._report(name, start, end, rid, wait_minutes, poll_seconds)
+
+    def _report(self, name, start, end, rid, wait_minutes, poll_seconds) -> tuple[str, bytes]:
         req = None
         deadline = time.time() + wait_minutes * 60
         while True:
-            req = next((q for q in self.report_requests(1) if q.get("request_id") == rid), req)
+            # an old request can sit beyond the first page of the list
+            req = next((q for q in self.report_requests(1) if q.get("request_id") == rid), None) or \
+                next((q for q in self.report_requests() if q.get("request_id") == rid), req)
             status = (req or {}).get("status")
             if status == "FILE_STORED":
                 break
