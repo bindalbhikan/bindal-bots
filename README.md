@@ -94,7 +94,7 @@ Secrets never go in git: `.env`, `service_account.json` and all workbooks are ig
 ## Local run
 
 ```
-python -m venv .venv && .venv\Scripts\pip install -r requirements.txt -r requirements-dev.txt
+python -m venv .venv && .venv\Scripts\pip install -r requirements.txt
 .venv\Scripts\python run.py vms --no-telegram
 .venv\Scripts\python -m pytest
 ```

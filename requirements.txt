@@ -17,3 +17,5 @@ pillow>=10.0
 # Myntra SPF master: fast streaming writer, and the fast (Rust) xlsx reader for the big payment exports
 xlsxwriter>=3.1
 python-calamine>=0.2
+# Tests (python -m pytest)
+pytest>=8.0
