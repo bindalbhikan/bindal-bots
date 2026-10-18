@@ -1,5 +1,5 @@
-from bindal.ajio_spf.sources.omsguru_returns import parse_order_page as parse_return_page
-from bindal.core.omsguru import parse_order_page
+from bindal.portals.omsguru_returns import parse_order_page as parse_return_page
+from bindal.portals.omsguru import parse_order_page
 
 PAGE = """<html><body>
 <div id="tab-details"><div class="row separateBlock"><dl>

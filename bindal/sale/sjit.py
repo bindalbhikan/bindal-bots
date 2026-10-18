@@ -9,7 +9,7 @@ order line. Rules (unchanged from the original main.py):
   * Cancel = lines with order status F, by "cancelled on" date
 
 The partner portal login has a reCAPTCHA, so the bot fetches the report with a
-saved login session (myntra_portal.py); a report dropped by hand into the SJIT
+saved login session (bindal/portals/myntra.py); a report dropped by hand into the SJIT
 Drive folder (SJIT_DRIVE_FOLDER_ID) is still read as well.
 """
 from __future__ import annotations

@@ -39,7 +39,7 @@ def done_this_month(out: DriveFolder | None, today: date) -> bool:
 def fetch_statement(work: Path, start: date, end: date) -> int:
     """The SRM statement as the StatementOfAccount*.xlsx the tool reads; rows written."""
     from ..ajio_spf.inputs import write_xlsx
-    from ..ajio_spf.sources.srm import PAYMENT_COLUMNS, Srm, payment_rows
+    from ..portals.srm import PAYMENT_COLUMNS, Srm, payment_rows
     srm = Srm(env("SRM_USERNAME"), env("SRM_PASSWORD"))
     srm.login()
     rows = payment_rows(srm.statement(start, end))

@@ -23,7 +23,7 @@ from ..core.app import run_bot
 from ..core.config import ROOT, csv_list, env, num, output_dir
 from ..core.drive import DriveFile
 from ..core.files import replace_atomically
-from ..core.omsguru import OmsGuruClient
+from ..portals.omsguru import OmsGuruClient
 from .oms_sales import OMS_BLOCKS, gross_by_day
 from .workbook import SaleWorkbook
 
@@ -54,7 +54,7 @@ def oms_source(days):
 
 
 def fbf_source(days):
-    from .flipkart import DEFAULT_FBF_LOCATIONS, FlipkartClient
+    from ..portals.flipkart import DEFAULT_FBF_LOCATIONS, FlipkartClient
     user, pwd = env("FLIPKART_EMAIL"), env("FLIPKART_PASSWORD")
     if not user or not pwd:
         raise RuntimeError("FLIPKART_EMAIL / FLIPKART_PASSWORD not set")
@@ -69,7 +69,7 @@ def sjit_source(days: list[date], notes: list[str], alerts: list[str]):
     session (MYNTRA_SESSION_JSON), plus any report dropped by hand into the SJIT Drive folder.
     The portal report wins for the lines it holds; every day it was requested for counts as
     covered. Session trouble goes into `alerts` (sent on Telegram as its own message)."""
-    from . import myntra_portal as mp
+    from ..portals import myntra as mp
     from . import sjit
     files: list[tuple[str, bytes]] = []
     fetched: set[date] = set()
@@ -109,7 +109,7 @@ def sjit_source(days: list[date], notes: list[str], alerts: list[str]):
 def myntra_portal(alerts: list[str]):
     """The partner portal client with the saved session, checked; None (with the reason in
     `alerts` when it is session trouble) when there is no working session."""
-    from . import myntra_portal as mp
+    from ..portals import myntra as mp
     text = mp.session_text(env, ROOT / "myntra_session.json")
     if not text:
         log.info("No Myntra session saved: SJIT only from dropped reports")
@@ -132,7 +132,7 @@ def run_sjit_request(args) -> int:
     """Morning run: ask the partner portal for the Seller_Orders_Report of the coming sale
     run's days, so it is ready by then. Reports already there are not asked for again.
     Telegram only hears about session trouble."""
-    from . import myntra_portal as mp
+    from ..portals import myntra as mp
     days = report_days(args)
     alerts: list[str] = []
     portal = myntra_portal(alerts)
@@ -161,7 +161,7 @@ def session_alert(alerts: list[str]) -> str:
 def keep_other_accounts_alive(alerts: list[str]) -> None:
     """Use the saved DBCC / FMCC sessions once (only the monthly return analysis needs them) and
     save the cookies the portal renews: a session left unused runs out within a day."""
-    from . import myntra_portal as mp
+    from ..portals import myntra as mp
     for account in (a for a in mp.ACCOUNTS if a != "MAIN"):
         text = mp.from_worker(env, account)
         if not text:

@@ -19,7 +19,7 @@ from datetime import datetime
 import pandas as pd
 from bs4 import BeautifulSoup
 
-from ..core.omsguru import BASE_URL, VIEW_ID, OmsGuruClient, item_status, text_of
+from ..portals.omsguru import BASE_URL, VIEW_ID, OmsGuruClient, item_status, text_of
 
 log = logging.getLogger(__name__)
 

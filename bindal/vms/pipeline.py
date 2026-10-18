@@ -19,7 +19,7 @@ from ..core.app import run_bot
 from ..core.config import env, num, output_dir
 from ..core.drive import DriveFile
 from ..core.files import replace_atomically
-from ..core.omsguru import OmsGuruClient
+from ..portals.omsguru import OmsGuruClient
 from .myntra import MYNTRA_AWB, list_rows, myntra_awbs
 from .vms import VmsClient
 from .workbook import CODES, VmsWorkbook, sheet_month

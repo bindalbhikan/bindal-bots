@@ -4,7 +4,7 @@ import pytest
 
 from bindal.ajio_spf import claims
 from bindal.ajio_spf.pipeline import dry_run
-from bindal.ajio_spf.sources.ajio import AjioClient, AjioError
+from bindal.portals.ajio import AjioClient, AjioError
 
 
 @pytest.mark.parametrize("cli,env_value,expected", [

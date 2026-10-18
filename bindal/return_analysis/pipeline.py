@@ -49,7 +49,7 @@ def _short_error(exc: Exception) -> str:
 
 def fetch_inputs(inputs: Path, sale, ret, parts, notes: list[str], alerts: list[str]) -> None:
     """Every portal into inputs/, side by side. A failed portal leaves no folder (engine skips it)."""
-    from ..sale import myntra_portal as mp
+    from ..portals import myntra as mp
     wait = num("RETURNS_WAIT_MINUTES", 45)
     folders = {f"MYNTRA {a}": inputs / "Myntra" / a for a in MYNTRA_ACCOUNTS}
     folders.update(AJIO=inputs / "Ajio", FLIPKART=inputs / "Flipkart")
@@ -158,7 +158,7 @@ def run_backfill(args, root: DriveFolder, work: Path) -> int:
 def run_request(args, sale, ret, parts) -> int:
     """9:00 AM on the 15th: ask Myntra (orders + first returns report per account) and Flipkart
     for the reports, so the 2 PM run only collects them. Telegram hears only about trouble."""
-    from ..sale import myntra_portal as mp
+    from ..portals import myntra as mp
     from ..sale.pipeline import session_alert
     problems, alerts = [], []
     for account in MYNTRA_ACCOUNTS:

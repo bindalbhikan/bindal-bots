@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 
 from bs4 import BeautifulSoup
 
-from ..core.omsguru import BASE_URL, OmsGuruClient, text_of
+from ..portals.omsguru import BASE_URL, OmsGuruClient, text_of
 
 log = logging.getLogger(__name__)
 

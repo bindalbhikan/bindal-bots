@@ -120,7 +120,7 @@ def _myntra_account(account: str, months: list[date], dest: Path, notes: list[st
     """Every month's orders report and every calendar month's returns report of one account into
     dest/<MON-YY>/. Orders and returns are asked together; the same report again only after
     the cooldown. A refused or failed job leaves that month without the file (noted)."""
-    from ..sale import myntra_portal as mp
+    from ..portals import myntra as mp
     portal = sources.myntra_portal(account)
     last = months[-1]
     orders = [(mp.REPORT_ID, m, last_day(m), m) for m in months]
@@ -164,7 +164,7 @@ def _myntra_account(account: str, months: list[date], dest: Path, notes: list[st
 
 
 def _ajio(months: list[date], dest: Path, notes: list[str]) -> None:
-    from ..ajio_spf.sources.ajio import AjioClient
+    from ..portals.ajio import AjioClient
     ajio = AjioClient(env("AJIO_USERNAME"), env("AJIO_PASSWORD"))
     ajio.login()
     for m in months:
@@ -219,7 +219,7 @@ def _flipkart(months: list[date], dest: Path, notes: list[str]) -> set[date]:
 
 def _month_input(raw: Path, month: date, inputs: Path) -> None:
     """One month's engine Input/ tree from the fetched files."""
-    from ..sale import myntra_portal as mp
+    from ..portals import myntra as mp
     for account in mp.ACCOUNTS:
         files = list((raw / "Myntra" / account / tag(month)).glob("*Seller_Orders_Report*.csv"))
         if not files:
@@ -241,7 +241,7 @@ def backfill(root: DriveFolder, year: int, supporting: Path, work: Path, today: 
     """Fetch, build and keep every month of the year whose window is over, then build the year.
     (months filled, yearly results)."""
     from concurrent.futures import ThreadPoolExecutor
-    from ..sale import myntra_portal as mp
+    from ..portals import myntra as mp
     months = months_to_fill(year, today)
     if not months:
         raise RuntimeError(f"no month of {year} has its returns window over yet")

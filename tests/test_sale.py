@@ -88,7 +88,7 @@ def test_move_blocks_adds_cocoblu_after_amazon_and_drops_snapdeal(tmp_path):
 
 from datetime import datetime  # noqa: E402
 
-from bindal.sale import myntra_portal as mp  # noqa: E402
+from bindal.portals import myntra as mp  # noqa: E402
 
 
 def test_session_expiry_ignores_bot_manager_cookies():

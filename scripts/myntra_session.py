@@ -32,7 +32,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from bindal.sale.myntra_portal import ACCOUNTS, MyntraPortal, SessionExpired, parse_session  # noqa: E402
+from bindal.portals.myntra import ACCOUNTS, MyntraPortal, SessionExpired, parse_session  # noqa: E402
 
 REPO = "bindalbhikan/bindal-bots"
 DROP = ROOT / "scripts"            # main.txt, dbcc.txt, fmcc.txt: request headers copied from DevTools

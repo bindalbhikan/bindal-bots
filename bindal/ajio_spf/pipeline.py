@@ -82,9 +82,9 @@ def rtv_start(today: date) -> date:
 
 def fetch_all(today: date, ctx: dict) -> None:
     """Fill WORK/input with fresh exports. Any failure is recorded in ctx['errors']."""
-    from .sources.ajio import AjioClient
-    from ..core.erp import Erp
-    from .sources.srm import Srm, payment_rows
+    from ..portals.ajio import AjioClient
+    from ..portals.erp import Erp
+    from ..portals.srm import Srm, payment_rows
 
     inp = WORK / "input"
     lookups = inp / "Manual Sheet"
@@ -192,7 +192,7 @@ def oms_lookup(today: date, ctx: dict) -> int:
     sheet that the master script reads. Returns how many rows changed.
     """
     from openpyxl import load_workbook
-    from .sources.omsguru_returns import ReturnLookup
+    from ..portals.omsguru_returns import ReturnLookup
     path = WORK / MASTER_NAME
     rows = claims.read_sheet(path)
     oldest = today - timedelta(days=num("OMS_LOOKUP_DAYS", 180))
@@ -267,7 +267,7 @@ def describe(cand: claims.Candidate) -> str:
 
 
 def raise_tickets(cands: list[claims.Candidate], ctx: dict, dry: bool) -> list[dict]:
-    from .sources.ajio import spf_payload
+    from ..portals.ajio import spf_payload
     client = ctx.get("ajio")
     done, cap = [], num("MAX_RAISE_PER_RUN", 40)
     for cand in cands:

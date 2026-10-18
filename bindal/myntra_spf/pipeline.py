@@ -44,7 +44,7 @@ COOLDOWN_SECONDS = 15 * 60 + 45
 
 def _windows(today: date) -> dict[int, list[tuple[date, date]]]:
     """report id -> date ranges of at most 30 days, ending yesterday."""
-    from ..sale import myntra_portal as mp
+    from ..portals import myntra as mp
     end = today - timedelta(days=1)
 
     def split(days: int) -> list[tuple[date, date]]:
@@ -63,7 +63,7 @@ def fetch_account(account: str, today: date, dest: Path, notes: list[str]) -> No
     """The account's returns, delivery and order reports into dest. Different reports are asked
     for together; the same report again only after the cooldown. Jobs for the same dates are reused."""
     from ..return_analysis.sources import myntra_portal
-    from ..sale import myntra_portal as mp
+    from ..portals import myntra as mp
     portal = myntra_portal(account)
     queues = [[(rid, a, b) for a, b in ranges] for rid, ranges in _windows(today).items()]
     jobs, step = [], 0
@@ -102,7 +102,7 @@ def request_reports(today: date) -> list[str]:
     them done. The order reports are left to the 9 AM run: at 7 AM the SJIT request asks MAIN
     for an order report, and the same report twice within 15 minutes is refused."""
     from ..return_analysis.sources import myntra_portal
-    from ..sale import myntra_portal as mp
+    from ..portals import myntra as mp
     windows = _windows(today)
     done = []
     for account in ACCOUNTS:
@@ -122,7 +122,7 @@ def request_reports(today: date) -> list[str]:
 
 def fetch_erp(dest: Path) -> list[str]:
     """GR GRN report and dispatch report as the xlsx files the engine recognises by their headers."""
-    from ..core.erp import Erp
+    from ..portals.erp import Erp
     erp = Erp.from_env()
     erp.login()
     dest.mkdir(parents=True, exist_ok=True)
@@ -214,7 +214,7 @@ def oms_statuses(wanted: dict[tuple, dict], notes: list[str]) -> dict[tuple, str
     """OMSGuru status of each open return: "Return Received OMSGuru" when the warehouse logged
     it in OMSGuru, else its current return status. The Myntra master has no SKU, so an order is
     matched on its AWBs / store order id and any returned item of it counts."""
-    from ..ajio_spf.sources.omsguru_returns import ReturnLookup
+    from ..portals.omsguru_returns import ReturnLookup
 
     class MyntraLookup(ReturnLookup):
         def lookup(self, ret):

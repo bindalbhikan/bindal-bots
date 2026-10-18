@@ -15,7 +15,7 @@ from ..awb_tracker import CourierRegistry, Job, track_all
 from ..core import dashboard, telegram
 from ..core.app import run_bot
 from ..core.config import ROOT, csv_list, env, num, output_dir
-from ..core.omsguru import OmsGuruClient
+from ..portals.omsguru import OmsGuruClient
 from .tat_engine import (OPEN_PICKUP, apply_status, apply_tracking,
                          needs_oms_refresh, build_report, merge_master, normalize_master,
                          prepare_tracking, summarize, write_excel)
@@ -33,7 +33,7 @@ def erp_labels(df, since: datetime, errors: list[str]):
     if not env("ERP_USERNAME"):
         log.info("ERP not configured: label prints not checked")
         return df
-    from ..core.erp import Erp
+    from ..portals.erp import Erp
     from .tat_engine import apply_erp_labels
     first = min(since.date(), (datetime.now() - timedelta(days=7)).date())
     try:

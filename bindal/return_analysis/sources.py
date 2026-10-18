@@ -38,7 +38,7 @@ def windows(month: date, today: date) -> tuple[tuple[date, date], tuple[date, da
 # ------------------------------------------------------------------ Myntra
 
 def myntra_portal(account: str):
-    from ..sale import myntra_portal as mp
+    from ..portals import myntra as mp
     text = mp.from_worker(env, account)
     if not text:
         raise mp.SessionExpired(f"no {account} session saved (python scripts/myntra_session.py {account})")
@@ -52,7 +52,7 @@ def request_myntra(account: str, sale: tuple[date, date], parts: list[tuple[date
     reports, so no cooldown between them). Returns first: at the same minute the daily SJIT run
     asks MAIN for an orders report, so MAIN's orders request may have to wait out the cooldown.
     What was done, one line each."""
-    from ..sale import myntra_portal as mp
+    from ..portals import myntra as mp
     portal = myntra_portal(account)
     done = []
     for report_id, (start, end) in [(mp.RETURNS_REPORT_ID, parts[0]), (mp.REPORT_ID, sale)]:
@@ -65,7 +65,7 @@ def request_myntra(account: str, sale: tuple[date, date], parts: list[tuple[date
 def fetch_myntra(account: str, sale: tuple[date, date], parts: list[tuple[date, date]], dest: Path,
                  wait_minutes: int = 45) -> list[str]:
     """Orders + returns reports of one account into dest; file names written."""
-    from ..sale import myntra_portal as mp
+    from ..portals import myntra as mp
     portal = myntra_portal(account)
     jobs = [portal.ensure(mp.REPORT_ID, *sale)]
     asked_at = None                       # when this run requested a returns report
@@ -93,7 +93,7 @@ def fetch_myntra(account: str, sale: tuple[date, date], parts: list[tuple[date, 
 # ------------------------------------------------------------------ Ajio
 
 def fetch_ajio(sale: tuple[date, date], ret: tuple[date, date], dest: Path) -> list[str]:
-    from ..ajio_spf.sources.ajio import AjioClient
+    from ..portals.ajio import AjioClient
     user, pwd = env("AJIO_USERNAME"), env("AJIO_PASSWORD")
     if not user or not pwd:
         raise RuntimeError("AJIO_USERNAME / AJIO_PASSWORD not set")
@@ -130,7 +130,7 @@ def returns_complete(xlsx: bytes, start: date, slack_days: int = 7) -> tuple[boo
 
 
 def flipkart_client():
-    from ..sale.flipkart import FlipkartClient
+    from ..portals.flipkart import FlipkartClient
     user, pwd = env("FLIPKART_EMAIL"), env("FLIPKART_PASSWORD")
     if not user or not pwd:
         raise RuntimeError("FLIPKART_EMAIL / FLIPKART_PASSWORD not set")

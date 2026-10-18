@@ -16,8 +16,8 @@ import logging
 from datetime import date, datetime, timedelta
 
 from ..core.config import env, num
-from ..core.erp import Erp
-from ..core.omsguru import OmsGuruClient
+from ..portals.erp import Erp
+from ..portals.omsguru import OmsGuruClient
 from .myntra import MYNTRA_AWB, list_rows, myntra_awbs
 from .vms import VmsClient
 
