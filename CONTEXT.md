@@ -61,7 +61,20 @@ Monthly sale vs return report, today a hand-run tool in `BINDAL EXPORTS\RETURN A
 account can edit it). To run on the 15th of every month at 2:00 PM IST: sale = previous month
 1st to last day, returns = previous month 1st to this month's 14th (two returns jobs per Myntra
 account, 15 minutes apart, or the earlier one reused). Portals: Myntra MAIN / DBCC / FMCC, Ajio,
-Flipkart.
+Flipkart. Where each input comes from (all found and checked 2026-10-18):
+
+| Input | API |
+|---|---|
+| Ajio orders (`DropShipOrderReports`) | `POST /malekith/vision/v1/dropship/order/report/download?from=&to=` (same form and headers as the RTV download in `ajio_spf/sources/ajio.py`; max 31 days). Sep-26 download = the hand-downloaded file (788 rows, same columns) |
+| Ajio returns (`DropShipRtvReports`) | `.../dropship/rtv/report/download` (already used by the SPF bot; max 31 days) |
+| Flipkart sales (sheet "Sales Report") | Tax Reports → `Sales Report`: `POST /napi/metrics/bizReport/submitReport?reportName=Sales%20Report` |
+| Flipkart returns (sheet "Returns") | Fulfilment Reports → `Returns`: `submitReport?reportName=Returns` |
+
+Flipkart reports: body `{"from_date","to_date","file_format":"EXCEL","type":"ONETIME","filters":[{"values":[from,to],"operator":"RANGE","name":"date"}]}`
+with the `fk-csrf-token` header; poll `POST /napi/metrics/bizReport/report/getReportsV2` until the
+request's `status` is `FILE_STORED`; download
+`GET /napi/metrics/bizReport/downloadReport/<request_id>_<created_at>.xlsx?token=<request_id>&sellerId=<seller id>`.
+(The Fulfilment "Orders" report is not the one the tool reads.)
 
 ## How it runs
 

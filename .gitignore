@@ -23,3 +23,5 @@ worker/node_modules/
 scripts/*.txt
 # network captures (netcap exports) of the portals
 return genra.json
+flipkart cap.json
+fl tax sel report.json
