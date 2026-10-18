@@ -1,0 +1,65 @@
+name: Myntra SPF master
+
+on:
+  # Started by the Telegram bot's Cloudflare cron (worker/src/worker.js): 7 AM IST with request=1,
+  # 9 AM IST for the master.
+  workflow_dispatch:
+    inputs:
+      request:
+        description: "1 = only ask Myntra for the returns and delivery reports (the 7 AM run)"
+        default: ""
+      no_upload:
+        description: "1 = test run: master only as the run's artifact, Drive not changed"
+        default: ""
+      chat_id:
+        description: "Telegram chat for this run's report (empty = default chat)"
+        default: ""
+
+concurrency:
+  group: myntra-spf
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+      MYNTRA_SPF_FOLDER_ID: ${{ secrets.MYNTRA_SPF_FOLDER_ID }}
+      OMSGURU_EMAIL: ${{ secrets.OMSGURU_EMAIL }}
+      OMSGURU_PASSWORD: ${{ secrets.OMSGURU_PASSWORD }}
+      OMSGURU_OTP: ${{ secrets.OMSGURU_OTP }}
+      ERP_USERNAME: ${{ secrets.ERP_USERNAME }}
+      ERP_PASSWORD: ${{ secrets.ERP_PASSWORD }}
+      ERP_USER_TOKEN: ${{ secrets.ERP_USER_TOKEN }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      DRIVE_RELAY_URL: ${{ secrets.DRIVE_RELAY_URL }}
+      DRIVE_RELAY_TOKEN: ${{ secrets.DRIVE_RELAY_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
+      # the Myntra sessions are read from the worker with the dashboard token
+      DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
+      OMSGURU_WORKERS: ${{ vars.OMSGURU_WORKERS }}
+      IN_NO_UPLOAD: ${{ inputs.no_upload }}
+      IN_REQUEST: ${{ inputs.request }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run report
+        run: |
+          set --
+          if [ -n "$IN_REQUEST" ]; then set -- --request; fi
+          if [ -n "$IN_NO_UPLOAD" ]; then set -- "$@" --no-upload; fi
+          bash scripts/ci_run.sh myntra-spf "$@"
+      - name: Upload run output (encrypted)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: myntra-spf-${{ github.run_id }}
+          path: secure/
+          if-no-files-found: ignore
+          retention-days: 14

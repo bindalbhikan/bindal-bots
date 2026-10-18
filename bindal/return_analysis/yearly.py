@@ -122,10 +122,14 @@ def _myntra_account(account: str, months: list[date], dest: Path, notes: list[st
             report_id, start, end, month = queue[step]
             job = mp.exact_job(portal.jobs(100), report_id, start, end)
             if not job:
+                # A refusal (cooldown) is waited out once by schedule(); either way the next
+                # request of this report waits too - not waiting turned one refusal into a
+                # run of them (2026 backfill, 18 Oct)
+                asked = True
                 try:
-                    job = portal.schedule(start, end, report_id, cooldown_wait=0)
-                    asked = True
+                    job = portal.schedule(start, end, report_id)
                 except Exception as exc:  # noqa: BLE001 - that month only
+                    log.warning("Myntra %s report %s %s refused: %s", account, report_id, start, exc)
                     notes.append(f"Myntra {account} report {report_id} {start:%b %Y}: {str(exc)[:80]}")
                     continue
             jobs.append((job, month))

@@ -7,13 +7,15 @@
   ajio-spf   AJIO SPF claims              python run.py ajio-spf --help
   returns    monthly return analysis      python run.py returns --help
   myntra-spf Myntra SPF master            python run.py myntra-spf --help
+  ajio-ads   AJIO ads / TOT gap, monthly  python run.py ajio-ads --help
 """
 import importlib
 import sys
 
 BOTS = {"sale": "bindal.sale.pipeline", "vms": "bindal.vms.pipeline",
         "ajio-tat": "bindal.ajio_tat.pipeline", "ajio-spf": "bindal.ajio_spf.pipeline",
-        "returns": "bindal.return_analysis.pipeline", "myntra-spf": "bindal.myntra_spf.pipeline"}
+        "returns": "bindal.return_analysis.pipeline", "myntra-spf": "bindal.myntra_spf.pipeline",
+        "ajio-ads": "bindal.ajio_ads.pipeline"}
 
 
 def main(argv: list[str]) -> int:

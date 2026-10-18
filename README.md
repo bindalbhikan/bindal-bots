@@ -5,11 +5,13 @@ Every bot sends its report to Telegram **@bindal_exports_bot**.
 
 | Bot | Command | What it does | Daily (IST) |
 |---|---|---|---|
-| Sale | `python run.py sale` | Fills `SALE REPORT.xlsx` (OMSGuru + Flipkart FBF + Myntra SJIT), Telegram summary | 3:30 PM (9:00 AM: SJIT report request) |
+| Sale | `python run.py sale` | Fills `SALE REPORT.xlsx` (OMSGuru + Flipkart FBF + Myntra SJIT), Telegram summary | 3:30 PM (7:00 AM: SJIT report request) |
 | VMS | `python run.py vms` | Checks every Myntra order has a VMS packing video, fills `MYNTRA ORDER ID WISE VMS.xlsx`; also ERP vs VMS (parcels packed in the ERP yesterday and today) | 5:30 PM |
 | AJIO TAT | `python run.py ajio-tat` | AJIO dispatch TAT (the 10:10 rule), fills `AJIO_TAT_MASTER` | 5:30 PM |
-| AJIO SPF | `python run.py ajio-spf` | AJIO SPF claims: raise tickets + Gemini-drafted follow-ups, rebuilds `AJIO MASTER.xlsx` | 11:30 AM Wed + Sat |
-| Returns | `python run.py returns` | Monthly sale vs return analysis (Myntra MAIN / DBCC / FMCC, Ajio, Flipkart) into `RETURN ANALYSIS/Output/<MON-YY>` on Drive and updates the yearly report `Output/<YYYY>`, Telegram summary | 2:00 PM on the 15th (9:00 AM: report request) |
+| AJIO SPF | `python run.py ajio-spf` | AJIO SPF claims: raise tickets + Gemini-drafted follow-ups, rebuilds `AJIO MASTER.xlsx` | master 9:00 AM daily; tickets + replies only Wed + Sat |
+| Returns | `python run.py returns` | Monthly sale vs return analysis (Myntra MAIN / DBCC / FMCC, Ajio, Flipkart) into `RETURN ANALYSIS/Output/<MON-YY>` on Drive and updates the yearly report `Output/<YYYY>`, Telegram summary | 2:00 PM on the 15th (7:00 AM: report request) |
+| Myntra SPF | `python run.py myntra-spf` | Myntra MAIN / DBCC / FMCC returns with claim aging, tickets, payouts; return received checked in the ERP, then OMSGuru, then the manual sheet; `SPF/MYNTRA/MYNTRA SPF MASTER.xlsx` | 9:00 AM (7:00 AM: report request) |
+| AJIO Ads gap | `python run.py ajio-ads` | Monthly G4 vs TOT marketing charge from the SRM statement, `AJIO/Ajio Ads Gap Working/output/AJIO_Simple_Monthly_G4_Charges.xlsx` | 9:00 AM on the 3rd (again on the 5th if missed) |
 
 `python run.py <bot> --help` lists each bot's options (back-fill dates, `--no-telegram`,
 `--no-drive`, `--snapshot`, ...).
@@ -93,11 +95,11 @@ Secrets never go in git: `.env`, `service_account.json` and all workbooks are ig
   to the Telegram worker (the copy the bots read); MAIN also to the GitHub secret
   `MYNTRA_SESSION_JSON`. The login cookies are httpOnly: browser JavaScript and page captures
   (netcap) cannot read them. Do not log out of the portal afterwards: that ends the bot's session
-  too. The 9:00 AM and 3:30 PM runs use every saved session and save the renewed cookies, which
+  too. The 7:00 AM and 3:30 PM runs use every saved session and save the renewed cookies, which
   keeps them alive.
   The sale run first uses `Seller_Orders_Report`s already on the portal (newest per day; also
   the last 30 days, for cancellations of older orders). Only days no report covers, or a report
-  that does not download, get a new report, which the run waits for (~5-10 min). At 9:00 AM a
+  that does not download, get a new report, which the run waits for (~5-10 min). At 7:00 AM a
   short run (`python run.py sale --sjit-request`) asks the portal for the report days, so it is
   ready by 3:30 PM. After each run the cookies the portal renewed are saved back to the worker.
   Telegram alert when the session has expired or expires within 3 days (a pasted cookie line

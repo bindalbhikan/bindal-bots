@@ -12,10 +12,10 @@ separate folders / repos: `daily-sale-report`, `myntra-vms-report`, `ajio-tat-bo
 
 | Bot | Run | What it does | Daily (IST) | Result workbook (Drive, synced here) |
 |---|---|---|---|---|
-| Sale | `python run.py sale` | OMSGuru + Flipkart FBF + Myntra SJIT, Telegram summary | 3:30 PM (+ 9:00 AM SJIT request) | `BINDAL EXPORTS\DAILY SALE REPORT BINDAL\SALE REPORT.xlsx` |
+| Sale | `python run.py sale` | OMSGuru + Flipkart FBF + Myntra SJIT, Telegram summary | 3:30 PM (+ 7:00 AM SJIT request) | `BINDAL EXPORTS\DAILY SALE REPORT BINDAL\SALE REPORT.xlsx` |
 | VMS | `python run.py vms` | Every Myntra order has a VMS packing video? | 5:30 PM | `BINDAL EXPORTS\VMS\MYNTRA ORDER ID WISE VMS.xlsx` |
 | AJIO TAT | `python run.py ajio-tat` | AJIO dispatch TAT (the 10:10 rule) | 5:30 PM | `AJIO_TAT_MASTER.xlsx` |
-| AJIO SPF | `python run.py ajio-spf` | SPF claims: raise tickets + Gemini-drafted follow-ups | 11:30 AM Wed + Sat | `BINDAL EXPORTS\SPF\AJIO\AJIO MASTER.xlsx` |
+| AJIO SPF | `python run.py ajio-spf` | SPF claims: raise tickets + Gemini-drafted follow-ups | master 9:00 AM daily (`--master-only`); tickets + replies Wed + Sat 9:00 AM | `BINDAL EXPORTS\SPF\AJIO\AJIO MASTER.xlsx` |
 
 Each run downloads its workbook from Drive, updates it, and uploads it in place (same file id;
 Drive keeps the old versions). It refuses to upload when someone changed the file meanwhile.
@@ -54,6 +54,28 @@ yearly return analysis reports, yearly data CSVs, a missing TAT master) go throu
 relay `scripts/drive_relay.gs`, an Apps Script web app that runs as you (`DRIVE_RELAY_URL`,
 `DRIVE_RELAY_TOKEN`); existing files are still updated directly by the service account.
 
+### Myntra SPF master (`python run.py myntra-spf`)
+
+The hand-run tool `SPF/MYNTRA/main.py` as `bindal/myntra_spf/engine.py` (unchanged apart from its
+folder, `MYNTRA_SPF_DIR`, and an `OMS_RESULTS` hook). 7:00 AM `--request` asks each Myntra account
+for the returns (12) and delivery (84) reports; 9:00 AM builds: the order reports (4, last 60
+days in 30-day jobs), ERP GRN + dispatch, and from Drive `SPF/MYNTRA/input` the hand-dropped
+Ticket1 / payment exports, MANUAL RETURN and LEGACY MASTER. Return received is checked in this
+order: ERP GRN ("Return Received ERP"), then OMSGuru - only rows whose FINAL RETURN STATUS is
+blank (computed like the sheet formula), created in the last 180 days, matched on the AWBs /
+store order id ("Return Received OMSGuru" or the current status) - then the manual sheet. The
+master on Drive (`MYNTRA_SPF_FOLDER_ID`) is replaced in place. Claim tickets on Myntra: later
+(needs captures of the SPF claim form, the ticket export and the payment download).
+
+### AJIO ads / TOT gap (`python run.py ajio-ads`)
+
+The hand-run tool `AJIO/Ajio Ads Gap Working/main.py` as `bindal/ajio_ads/engine.py` (folder via
+`AJIO_ADS_DIR`). Reads only the SRM statement of accounts (fetched with the SPF bot's SRM client,
+`STATEMENT_FROM` 2026-01-01 to yesterday; the order report and TOT.xlsx in that folder are
+reference only). Writes the single sheet `output/AJIO_Simple_Monthly_G4_Charges.xlsx` on Drive
+(`AJIO_ADS_FOLDER_ID`). 9 AM on the 3rd; on the 5th `--if-missing` runs only if the report was
+not saved this month. Checked 2026-10-18: marketing total INR 107,461.42 = the hand report.
+
 ### Myntra partner portal reports
 
 Three seller accounts, each its own login: MAIN 19170, DBCC 32207, FMCC 35426. All use the same
@@ -76,7 +98,7 @@ waits out one refusal (16 min); the exact refusal text is not known yet.
 Monthly sale vs return report for Myntra MAIN / DBCC / FMCC, Ajio and Flipkart. The rules are
 those of the hand-run tool in `BINDAL EXPORTS\RETURN ANALYSIS` (`main.py` and its CONTEXT.md),
 copied unchanged into `bindal/return_analysis/engine.py` (same SEP-26 output, checked file by
-file). Worker cron on the 15th: 9:00 AM `--request` (asks Myntra for the orders report and the
+file). Worker cron on the 15th: 7:00 AM `--request` (asks Myntra for the orders report and the
 first returns report per account, and Flipkart for its two reports), 2:00 PM the report: sale =
 last month 1st to last day, returns = last month 1st to this month's 14th (two Myntra returns
 jobs per account, the second after the 15-minute cooldown; existing jobs for the same dates are
@@ -171,11 +193,11 @@ worker's `EXTRA_CHAT_IDS`). Never commit or print logins, cookies or customer da
   `scripts/myntra_session.py MAIN|DBCC|FMCC` to the Telegram worker (KV `myntra_session`,
   `myntra_session_dbcc`, `myntra_session_fmcc`; MAIN also the secret `MYNTRA_SESSION_JSON`).
   Three separate seller logins: MAIN 19170 (SJIT), DBCC 32207, FMCC 35426; DBCC / FMCC are for
-  the monthly return analysis and are kept alive by the 9 AM and 3:30 PM sale runs. Do not log out of the
+  the monthly return analysis and are kept alive by the 7 AM and 3:30 PM sale runs. Do not log out of the
   portal: that ends the bot's session (a Chrome extension was tried and removed: the login
   cookies are httpOnly, host-only on partnersapi). Reports already on the portal are
   used first; only uncovered days get a new `Seller_Orders_Report` (the run waits for it). A
-  9:00 AM run (`sale --sjit-request`, worker cron) asks for the report days early. Renewed
+  7:00 AM run (`sale --sjit-request`, worker cron) asks for the report days early. Renewed
   cookies are saved back to the worker after each run. Telegram alert when the session is
   expired or expires within 3 days. A CSV dropped into the `sjit` Drive folder still counts;
   days no report covers count as 0 and only fill empty cells.

@@ -1,0 +1,51 @@
+name: AJIO ads TOT gap
+
+on:
+  # Started by the Telegram bot's Cloudflare cron (worker/src/worker.js) at 9 AM IST on the 3rd,
+  # and on the 5th with if_missing=1 (only when the 3rd's run did not save the report).
+  workflow_dispatch:
+    inputs:
+      if_missing:
+        description: "1 = do nothing when this month's report is already on Drive"
+        default: ""
+      chat_id:
+        description: "Telegram chat for this run's report (empty = default chat)"
+        default: ""
+
+concurrency:
+  group: ajio-ads
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+      AJIO_ADS_FOLDER_ID: ${{ secrets.AJIO_ADS_FOLDER_ID }}
+      SRM_USERNAME: ${{ secrets.SRM_USERNAME }}
+      SRM_PASSWORD: ${{ secrets.SRM_PASSWORD }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      DRIVE_RELAY_URL: ${{ secrets.DRIVE_RELAY_URL }}
+      DRIVE_RELAY_TOKEN: ${{ secrets.DRIVE_RELAY_TOKEN }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
+      DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
+      IN_IF_MISSING: ${{ inputs.if_missing }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run report
+        run: bash scripts/ci_run.sh ajio-ads ${IN_IF_MISSING:+--if-missing}
+      - name: Upload run output (encrypted)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ajio-ads-${{ github.run_id }}
+          path: secure/
+          if-no-files-found: ignore
+          retention-days: 14

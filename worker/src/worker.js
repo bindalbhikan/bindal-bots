@@ -58,6 +58,22 @@ const COMMANDS = {
       return "Use /ajiospf or /ajiospf dry";
     },
   },
+  ajioads: {
+    workflow: "ajio-ads.yml",
+    icon: "📣",
+    name: "AJIO Ads / TOT gap",
+    examples: ["/ajioads"],
+    minutes: 3,
+    inputs: (args) => (args.length === 0 ? {} : "Use /ajioads"),
+  },
+  myntraspf: {
+    workflow: "myntra-spf.yml",
+    icon: "🧾",
+    name: "Myntra SPF",
+    examples: ["/myntraspf"],
+    minutes: 30,
+    inputs: (args) => (args.length === 0 ? {} : "Use /myntraspf"),
+  },
   returns: {
     workflow: "returns.yml",
     icon: "↩️",
@@ -102,18 +118,26 @@ function monthArg(args) {
 // below must also be listed under [triggers] in wrangler.toml. GitHub's own `schedule:`
 // is not used: it skipped runs.
 const SCHEDULE = [
-  // asks the Myntra partner portal for the SJIT report, so it is ready for the 3:30 PM run
-  { ist: "9:00 AM daily", cron: "30 3 * * *", cmd: "sale", label: "SJIT report request", inputs: { sjit_request: "1" } },
-  { ist: "11:30 AM Wed, Sat", cron: "0 6 * * WED,SAT", cmd: "ajiospf" },
+  // 7 AM: Myntra report requests - they queue on the portal for a while. The same Myntra report
+  // twice within 15 minutes is refused, so the SPF request leaves the order report to 9 AM.
+  { ist: "7:00 AM daily", cron: "30 1 * * *", cmd: "sale", label: "SJIT report request", inputs: { sjit_request: "1" } },
+  { ist: "7:00 AM daily", cron: "30 1 * * *", cmd: "myntraspf", label: "Myntra SPF report request",
+    inputs: { request: "1" } },
+  { ist: "7:00 AM on the 15th", cron: "30 1 * * *", day: 15, cmd: "returns", label: "Return analysis report request",
+    inputs: { request: "1" } },
+  // 9 AM: the SPF masters. AJIO tickets and replies only on Wed + Sat, the other days the master only.
+  { ist: "9:00 AM daily", cron: "30 3 * * *", cmd: "myntraspf" },
+  { ist: "9:00 AM Wed, Sat", cron: "30 3 * * *", weekdays: [3, 6], cmd: "ajiospf" },
+  { ist: "9:00 AM other days", cron: "30 3 * * *", weekdays: [0, 1, 2, 4, 5], cmd: "ajiospf",
+    label: "AJIO SPF master update", inputs: { master_only: "1" } },
+  // AJIO ads / TOT gap: the 3rd, and the 5th only if the 3rd did not save the report
+  { ist: "9:00 AM on the 3rd", cron: "30 3 * * *", day: 3, cmd: "ajioads" },
+  { ist: "9:00 AM on the 5th", cron: "30 3 * * *", day: 5, cmd: "ajioads", label: "AJIO Ads / TOT gap (if missed)",
+    inputs: { if_missing: "1" } },
+  { ist: "2:00 PM on the 15th", cron: "30 8 * * *", day: 15, cmd: "returns" },
   { ist: "3:30 PM daily", cron: "0 10 * * *", cmd: "sale" },
   { ist: "5:30 PM daily", cron: "0 12 * * *", cmd: "vms" },
   { ist: "5:30 PM daily", cron: "0 12 * * *", cmd: "ajiotat" },
-  // return analysis on the 15th (`day`: only on that IST day of the month; the free plan allows 5
-  // cron triggers, so these ride on daily ones): the reports asked for at 9 AM, as they queue on
-  // the portals for a while, and the report built at 2 PM.
-  { ist: "9:00 AM on the 15th", cron: "30 3 * * *", day: 15, cmd: "returns", label: "Return analysis report request",
-    inputs: { request: "1" } },
-  { ist: "2:00 PM on the 15th", cron: "30 8 * * *", day: 15, cmd: "returns" },
 ];
 
 // The button menu. Every screen edits the same message. Button data:
@@ -126,7 +150,8 @@ const SCREENS = {
     rows: [
       [["📈 Sale", "m:sale"], ["📹 VMS", "m:vms"]],
       [["📦 AJIO TAT", "m:tat"], ["🧾 AJIO SPF", "m:spf"]],
-      [["↩️ Returns", "m:returns"]],
+      [["↩️ Returns", "m:returns"], ["🧾 Myntra SPF", "r:myntraspf"]],
+      [["📣 AJIO Ads gap", "r:ajioads"]],
       [["📋 Status", "st"], ["🖥 Dashboard", "db"]],
       [["❓ Help", "hp"]],
     ],
@@ -265,8 +290,11 @@ export default {
     // Matched on minute + hour only: Cloudflare may hand back the day-of-week
     // field in another form ("WED,SAT" vs "4,7"), and the times are unique.
     const at = (c) => String(c).trim().split(/\s+/).slice(0, 2).join(" ");
-    const istDay = new Date(event.scheduledTime + 5.5 * 3600 * 1000).getUTCDate();
-    const due = SCHEDULE.filter((s) => at(s.cron) === at(event.cron) && (!s.day || s.day === istDay));
+    // `day` = IST day of the month, `weekdays` = IST weekdays (0 Sunday .. 6 Saturday): the free
+    // plan allows 5 cron triggers, so monthly / weekly runs ride on daily ones
+    const ist = new Date(event.scheduledTime + 5.5 * 3600 * 1000);
+    const due = SCHEDULE.filter((s) => at(s.cron) === at(event.cron) && (!s.day || s.day === ist.getUTCDate())
+      && (!s.weekdays || s.weekdays.includes(ist.getUTCDay())));
     ctx.waitUntil(
       Promise.all(
         due.map(async (s) => {
@@ -290,7 +318,7 @@ export default {
 
 // The bots' latest numbers for the dashboard, stored in KV under their key.
 const DASH_KEYS = new Set(["sale", "sale_today", "vms", "vms_erp", "ajio_tat", "ajio_spf",
-                           "returns", "returns_year", "run_sale", "run_vms", "run_ajio_tat", "run_ajio_spf", "run_returns"]);
+                           "returns", "returns_year", "myntra_spf", "ajio_ads", "run_sale", "run_vms", "run_ajio_tat", "run_ajio_spf", "run_returns", "run_myntra_spf", "run_ajio_ads"]);
 
 async function pushDashboard(request, env, key) {
   const token = env.DASHBOARD_TOKEN || "";

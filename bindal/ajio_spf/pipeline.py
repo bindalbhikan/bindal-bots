@@ -430,7 +430,9 @@ def summary(rows, raised, replies, soon, ctx, dry, today) -> str:
     sent = [r for r in replies if r["result"] in ("sent", "dry-run")]
     kind = {claims.DISPUTE: "Dispute", claims.NOT_DELIVERED: "Not delivered"}
     lines = [f"🧾 <b>AJIO SPF · {today:%d %b %Y}</b>"]
-    if dry:
+    if ctx.get("master_only"):
+        lines.append("<i>Master update — tickets and replies run on Wed + Sat</i>")
+    elif dry:
         lines.append("🧪 <i>Dry run — nothing posted</i>")
     lines += ["",
               f"📦 Returns {len(rows)}",
@@ -540,8 +542,13 @@ def run(args) -> int:
         # A missing lookup source could make a received parcel look lost, so
         # nothing is posted to AJIO on a run where any source failed.
         act_dry = dry or bool(ctx["errors"])
-        raised = raise_tickets(claims.candidates(rows, today, rules), ctx, act_dry)
-        replies = follow_up(rows, ctx, act_dry, now)
+        ctx["master_only"] = args.master_only
+        if args.master_only:
+            # daily 9 AM update: the master only; tickets and replies stay on their own days
+            raised, replies = [], []
+        else:
+            raised = raise_tickets(claims.candidates(rows, today, rules), ctx, act_dry)
+            replies = follow_up(rows, ctx, act_dry, now)
         soon = claims.upcoming(rows, today, rules)
         write_bot_log(WORK / MASTER_NAME, bot_log, raised, replies, act_dry, today)
         upload_failed = False
@@ -581,5 +588,7 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="run.py ajio-spf", description="Daily AJIO SPF claim run")
     p.add_argument("--dry-run", choices=("0", "1"), default=None, help="override SPF_DRY_RUN")
     p.add_argument("--no-upload", action="store_true", help="build locally, do not write the master to Drive")
+    p.add_argument("--master-only", action="store_true",
+                   help="update the master only: no tickets raised, no replies (the daily 9 AM run)")
     p.add_argument("--no-telegram", action="store_true", help="do not send the Telegram message")
     return run_bot("AJIO SPF run", p, run, argv, key="ajio_spf")
