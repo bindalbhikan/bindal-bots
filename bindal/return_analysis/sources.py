@@ -41,7 +41,7 @@ def myntra_portal(account: str):
     from ..portals import myntra as mp
     text = mp.from_worker(env, account)
     if not text:
-        raise mp.SessionExpired(f"no {account} session saved (python scripts/myntra_session.py {account})")
+        raise mp.SessionExpired(f"no {account} session saved (python scripts/myntra/myntra_session.py {account})")
     portal = mp.MyntraPortal(mp.parse_session(text))
     portal.check()
     return portal

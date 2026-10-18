@@ -75,7 +75,7 @@ Secrets never go in git: `.env`, `service_account.json` and all workbooks are ig
   login made by hand in Chrome, one per seller account: MAIN (19170, SJIT), DBCC (32207),
   FMCC (35426). To give it a new one: logged in on the portal with that account, DevTools (F12)
   > Network > any `partnersapi.myntrainfo.com` request > Request Headers > copy the `cookie:`
-  value, then run `python scripts/myntra_session.py MAIN` (or `DBCC` / `FMCC`; it reads the
+  value, then run `python scripts/myntra/myntra_session.py MAIN` (or `DBCC` / `FMCC`; it reads the
   clipboard, or a file given after the account). It checks the login is that account and saves it
   to the Telegram worker (the copy the bots read); MAIN also to the GitHub secret
   `MYNTRA_SESSION_JSON`. The login cookies are httpOnly: browser JavaScript and page captures

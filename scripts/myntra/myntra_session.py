@@ -1,16 +1,16 @@
 #!/usr/bin/env python
 """Save a Myntra partner portal login for the bots, per seller account.
 
-    python scripts/myntra_session.py                  every account with a file in scripts/:
+    python scripts/myntra/myntra_session.py                  every account with a file in scripts/myntra/:
                                                       main.txt (MAIN 19170), dbcc.txt (DBCC 32207),
                                                       fmcc.txt (FMCC 35426)
-    python scripts/myntra_session.py ACCOUNT          that account: its .txt file, else the clipboard
-    python scripts/myntra_session.py ACCOUNT FILE     that account from FILE
+    python scripts/myntra/myntra_session.py ACCOUNT          that account: its .txt file, else the clipboard
+    python scripts/myntra/myntra_session.py ACCOUNT FILE     that account from FILE
 
 How to get the login, once per account:
   1. In Chrome, log in on https://partners.myntrainfo.com with that account.
   2. F12 > Network > reload the page > click any partnersapi.myntrainfo.com request > Headers.
-  3. Copy the request headers (or just the "cookie" value) into scripts/<account>.txt.
+  3. Copy the request headers (or just the "cookie" value) into scripts/myntra/<account>.txt.
   4. Run the command, then delete the .txt files (they hold live logins).
 
 The login cookies (erp.at, erp.rt, session) are httpOnly: browser JavaScript and page-level
@@ -29,13 +29,13 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from bindal.portals.myntra import ACCOUNTS, MyntraPortal, SessionExpired, parse_session  # noqa: E402
 
 REPO = "bindalbhikan/bindal-bots"
-DROP = ROOT / "scripts"            # main.txt, dbcc.txt, fmcc.txt: request headers copied from DevTools
+DROP = ROOT / "scripts" / "myntra"  # main.txt, dbcc.txt, fmcc.txt: request headers copied from DevTools
 
 
 def clipboard() -> str:
@@ -98,7 +98,7 @@ def main(argv: list[str]) -> int:
     push_it = "--no-push" not in argv
     args = [a for a in argv if a != "--no-push"]
     if args and args[0].upper() not in ACCOUNTS:
-        print(f"Usage: python scripts/myntra_session.py [{'|'.join(ACCOUNTS)}] [FILE]")
+        print(f"Usage: python scripts/myntra/myntra_session.py [{'|'.join(ACCOUNTS)}] [FILE]")
         return 2
     if len(args) > 1:                       # one account, from the file given
         source = Path(args[1])
@@ -111,7 +111,7 @@ def main(argv: list[str]) -> int:
     for account in accounts:
         source = DROP / f"{account.lower()}.txt"
         if source.is_file():
-            text, where = source.read_text(encoding="utf-8-sig"), f"scripts/{source.name}"
+            text, where = source.read_text(encoding="utf-8-sig"), f"scripts/myntra/{source.name}"
         elif args:                          # one account named, no file: the clipboard
             text, where = clipboard(), "the clipboard"
         else:
@@ -119,7 +119,7 @@ def main(argv: list[str]) -> int:
         tried += 1
         done += save(account, text, where, push_it)
     if not tried:
-        print(f"Nothing to do: put the copied request headers in scripts/main.txt, dbcc.txt or fmcc.txt")
+        print(f"Nothing to do: put the copied request headers in scripts/myntra/main.txt, dbcc.txt or fmcc.txt")
         return 1
     print(f"{done} of {tried} account(s) saved." + (" Delete the .txt files now: they hold live logins." if done else ""))
     return 0 if done == tried else 1

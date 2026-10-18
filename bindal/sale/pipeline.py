@@ -154,7 +154,7 @@ def session_alert(alerts: list[str]) -> str:
         "",
         "Renew it: log in on the Myntra partner portal with that account, copy the <code>cookie:</code> "
         "request header (DevTools > Network > a partnersapi request), then run "
-        "<code>python scripts/myntra_session.py ACCOUNT</code> (MAIN / DBCC / FMCC).",
+        "<code>python scripts/myntra/myntra_session.py ACCOUNT</code> (MAIN / DBCC / FMCC).",
     ])
 
 

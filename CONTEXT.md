@@ -39,9 +39,9 @@ working), **`docs/PORTALS.md`** (every outside system, its API and limits), **`d
 
 ## Settings and secrets — never in git
 
-- **Public repo**: every workflow runs its bot through `scripts/ci_run.sh` (public log = exit code
+- **Public repo**: every workflow runs its bot through `scripts/github/ci_run.sh` (public log = exit code
   only; log + `output/` uploaded AES-encrypted with `ARTIFACT_KEY`; read with
-  `python scripts/run_output.py <run id>`). Never commit or print logins, cookies or customer data;
+  `python scripts/github/run_output.py <run id>`). Never commit or print logins, cookies or customer data;
   folder / file ids and chat ids live in secrets.
 - Local: one `.env` (copy of `.env.example`) + `service_account.json` (Google service account
   `ajio-tat-bot@storied-port-441507-k7.iam.gserviceaccount.com`, Editor on the folders). Ignored by

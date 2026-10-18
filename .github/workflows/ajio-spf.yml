@@ -26,7 +26,7 @@ jobs:
     env:
       TZ: Asia/Kolkata
       RUN_MODE: github-actions
-      # the repo is public: the run's log and output are uploaded only encrypted (scripts/ci_run.sh)
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/github/ci_run.sh)
       ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
       SPF_DRY_RUN: ${{ inputs.dry_run || vars.SPF_DRY_RUN || '1' }}
       AJIO_USERNAME: ${{ secrets.AJIO_USERNAME }}
@@ -52,7 +52,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
-      - run: bash scripts/ci_run.sh ajio-spf ${IN_MASTER_ONLY:+--master-only}
+      - run: bash scripts/github/ci_run.sh ajio-spf ${IN_MASTER_ONLY:+--master-only}
         env:
           IN_MASTER_ONLY: ${{ inputs.master_only }}
       - name: Upload run output (encrypted)

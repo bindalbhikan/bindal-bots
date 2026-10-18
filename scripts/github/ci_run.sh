@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Runs one bot in GitHub Actions without anything of its output in the public run log:
-#   bash scripts/ci_run.sh <bot> [options]          (same arguments as python run.py)
+#   bash scripts/github/ci_run.sh <bot> [options]          (same arguments as python run.py)
 #
 # The repository is public, so its Actions logs and artifacts are readable by anyone. The bot's
 # log and its output/ folder are packed and encrypted with the ARTIFACT_KEY secret into
 # secure/output.tar.gz.enc (the only file uploaded as the run's artifact); the public log shows
-# only the exit code. Read a run's output with:  python scripts/run_output.py <run id>
+# only the exit code. Read a run's output with:  python scripts/github/run_output.py <run id>
 # Failures still reach Telegram from the bot itself.
 set -u
 mkdir -p output secure

@@ -35,7 +35,7 @@ jobs:
     env:
       TZ: Asia/Kolkata
       RUN_MODE: github-actions
-      # the repo is public: the run's log and output are uploaded only encrypted (scripts/ci_run.sh)
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/github/ci_run.sh)
       ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
       AJIO_USERNAME: ${{ secrets.AJIO_USERNAME }}
       AJIO_PASSWORD: ${{ secrets.AJIO_PASSWORD }}
@@ -68,7 +68,7 @@ jobs:
           if [ -n "$IN_DRIVE_INPUT" ]; then set -- "$@" --drive-input; fi
           if [ -n "$IN_NO_UPLOAD" ]; then set -- "$@" --no-upload; fi
           if [ -n "$IN_BACKFILL_YEAR" ]; then set -- "$@" --backfill-year "$IN_BACKFILL_YEAR"; fi
-          bash scripts/ci_run.sh returns "$@"
+          bash scripts/github/ci_run.sh returns "$@"
       - name: Upload run output (encrypted)
         if: always()
         uses: actions/upload-artifact@v4

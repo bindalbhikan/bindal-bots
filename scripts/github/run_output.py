@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """Download and decrypt a GitHub Actions run's output (log + output/ folder).
 
-    python scripts/run_output.py <run id>        (the run id is in the run's URL)
+    python scripts/github/run_output.py <run id>        (the run id is in the run's URL)
 
-The runs pack their output encrypted with the ARTIFACT_KEY secret (scripts/ci_run.sh), because
+The runs pack their output encrypted with the ARTIFACT_KEY secret (scripts/github/ci_run.sh), because
 the repository's artifacts are public. The same key must be in the local .env as ARTIFACT_KEY.
 The files land in output/runs/<run id>/; the end of the log is printed.
 """
@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives import hashes, padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 REPO = "bindalbhikan/bindal-bots"
 
 

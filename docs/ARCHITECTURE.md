@@ -16,7 +16,7 @@ is in `docs/bots/`, the outside systems in `docs/PORTALS.md`.
         │                                 workflow_dispatch (GITHUB_TOKEN)
         │                                             ▼
         │                              GitHub Actions  bindalbhikan/bindal-bots (public)
-        │                              one workflow per bot → scripts/ci_run.sh → run.py <bot>
+        │                              one workflow per bot → scripts/github/ci_run.sh → run.py <bot>
         │                                             │
         └──────────── Telegram API ◀──────────────────┤
                                                       ├──▶ portals: Myntra, AJIO, Flipkart,
@@ -31,13 +31,13 @@ is in `docs/bots/`, the outside systems in `docs/PORTALS.md`.
   runs). The Cloudflare free plan allows **5 cron triggers**, so monthly / weekly runs ride on a
   daily trigger with a `day` (IST day of month) or `weekdays` (IST, 0 = Sunday) filter.
 * **Runner = GitHub Actions**, one `workflow_dispatch` workflow per bot. The repo is public
-  (unlimited minutes), so every workflow runs its bot through `scripts/ci_run.sh`: the public
+  (unlimited minutes), so every workflow runs its bot through `scripts/github/ci_run.sh`: the public
   log shows only the exit code; the log and `output/` are uploaded AES-encrypted
-  (`ARTIFACT_KEY`); read them with `python scripts/run_output.py <run id>`.
+  (`ARTIFACT_KEY`); read them with `python scripts/github/run_output.py <run id>`.
 * **Storage = Google Drive.** Each working keeps its workbook / folder on Drive and updates it
   in place (Drive keeps old versions). The Google service account can update files but **cannot
   create files** in a personal Drive; new files go through the Apps Script relay
-  (`scripts/drive_relay.gs`, `DRIVE_RELAY_URL` / `DRIVE_RELAY_TOKEN`) — `DriveFolder.put()` does
+  (`scripts/drive/drive_relay.gs`, `DRIVE_RELAY_URL` / `DRIVE_RELAY_TOKEN`) — `DriveFolder.put()` does
   this by itself. Folders the service account can create.
 * **Telegram** gets every report, failure (`core/app.py` sends the error) and alert.
 * **Dashboard**: every run posts its numbers to the worker (`/api/push/<key>`, `DASHBOARD_TOKEN`);
@@ -62,7 +62,11 @@ bindal/
                             a working that came from a hand-run tool keeps that tool unchanged
                             as engine.py and only feeds it inputs (return_analysis, myntra_spf,
                             ajio_ads, ajio_spf's master_engine.py)
-scripts/                    ci_run.sh, run_output.py, myntra_session.py, drive_relay.gs
+scripts/                    manual tools, one folder per job, each with a README (scripts/README.md):
+  myntra/                     myntra_session.py: save a Myntra login (when a session expires)
+  github/                     ci_run.sh (every workflow), run_output.py (read a run's encrypted log)
+  drive/                      drive_relay.gs: the Apps Script relay that creates Drive files
+  local/                      run_local.bat: run a bot on this PC
 worker/                     Telegram bot + scheduler (Cloudflare);  dashboard/  the dashboard
 tests/                      python -m pytest (runs on every push: .github/workflows/tests.yml)
 docs/                       this file, PORTALS.md, bots/<bot>.md
@@ -92,7 +96,7 @@ docs/                       this file, PORTALS.md, bots/<bot>.md
 2. `run.py`: add it to the docstring and to `BOTS`.
 3. Settings: read with `env()` / `num()`; add to `.env.example`; Drive folder / file ids and
    logins as GitHub **secrets** (`gh secret set NAME`), tuning values as variables.
-4. `.github/workflows/<name>.yml`: copy a recent one (`ajio-ads.yml`); `bash scripts/ci_run.sh
+4. `.github/workflows/<name>.yml`: copy a recent one (`ajio-ads.yml`); `bash scripts/github/ci_run.sh
    <name> …`, upload only `secure/`, pass every secret it needs, sensible `timeout-minutes`.
 5. Worker (`worker/src/worker.js`): a `COMMANDS` entry (`/command`, inputs, usual minutes), a
    menu button if useful, `SCHEDULE` entries on one of the **existing** 5 cron triggers (use

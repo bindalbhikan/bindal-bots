@@ -1,11 +1,11 @@
 """Myntra partner portal: fetch the Seller_Orders_Report with a saved login session.
 
 The portal login has a reCAPTCHA, so the bot never logs in. Someone logs in by hand in
-Chrome and copies the login cookies (scripts/myntra_session.py saves them); the bot reuses
+Chrome and copies the login cookies (scripts/myntra/myntra_session.py saves them); the bot reuses
 that session and, after each run, saves the cookies the portal renewed, which keeps it
 alive. Telegram is told when it has expired. Where the session comes from, first found wins:
   1. the Telegram worker (KV myntra_session), read through /api/myntra-session/read
-     (DASHBOARD_TOKEN): written by scripts/myntra_session.py and by every run
+     (DASHBOARD_TOKEN): written by scripts/myntra/myntra_session.py and by every run
   2. MYNTRA_SESSION_JSON, or the file MYNTRA_SESSION_FILE (default myntra_session.json)
 
 The session JSON may be:
@@ -111,7 +111,7 @@ def parse_session(text: str) -> Session:
 
 
 def from_worker(env, account: str = "MAIN") -> str:
-    """The account's session last saved on the Telegram worker (by scripts/myntra_session.py or a run)."""
+    """The account's session last saved on the Telegram worker (by scripts/myntra/myntra_session.py or a run)."""
     url, token = env("DASHBOARD_URL"), env("DASHBOARD_TOKEN")
     if not url or not token:
         return ""

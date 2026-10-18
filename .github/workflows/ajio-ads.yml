@@ -23,7 +23,7 @@ jobs:
     env:
       TZ: Asia/Kolkata
       RUN_MODE: github-actions
-      # the repo is public: the run's log and output are uploaded only encrypted (scripts/ci_run.sh)
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/github/ci_run.sh)
       ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
       AJIO_ADS_FOLDER_ID: ${{ secrets.AJIO_ADS_FOLDER_ID }}
       SRM_USERNAME: ${{ secrets.SRM_USERNAME }}
@@ -40,7 +40,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - name: Run report
-        run: bash scripts/ci_run.sh ajio-ads ${IN_IF_MISSING:+--if-missing}
+        run: bash scripts/github/ci_run.sh ajio-ads ${IN_IF_MISSING:+--if-missing}
       - name: Upload run output (encrypted)
         if: always()
         uses: actions/upload-artifact@v4
