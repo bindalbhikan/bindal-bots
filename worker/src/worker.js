@@ -58,6 +58,18 @@ const COMMANDS = {
       return "Use /ajiospf or /ajiospf dry";
     },
   },
+  returns: {
+    workflow: "returns.yml",
+    icon: "↩️",
+    name: "Return Analysis",
+    examples: ["/returns", "/returns 2026-09"],
+    minutes: 25,
+    inputs: (args) => {
+      if (args.length === 0) return {};
+      if (args.length === 1 && /^\d{4}-\d{2}$/.test(args[0])) return { month: args[0] };
+      return "Month must be YYYY-MM, e.g. /returns 2026-09";
+    },
+  },
   // Pictures of a month sheet (the workbook is not changed); same workflows, so left out of
   // /status and of the measured run time (LibreOffice makes them slower than a report).
   salepic: {
@@ -96,6 +108,11 @@ const SCHEDULE = [
   { ist: "3:30 PM daily", cron: "0 10 * * *", cmd: "sale" },
   { ist: "5:30 PM daily", cron: "0 12 * * *", cmd: "vms" },
   { ist: "5:30 PM daily", cron: "0 12 * * *", cmd: "ajiotat" },
+  // return analysis on the 15th: the slow reports asked for in the morning, the report at 2 PM.
+  // Only minute + hour are matched (see scheduled()), so these two times must stay unique.
+  { ist: "9:30 AM on the 15th", cron: "0 4 15 * *", cmd: "returns", label: "Return analysis report request",
+    inputs: { request: "1" } },
+  { ist: "2:00 PM on the 15th", cron: "30 8 15 * *", cmd: "returns" },
 ];
 
 // The button menu. Every screen edits the same message. Button data:
@@ -108,6 +125,7 @@ const SCREENS = {
     rows: [
       [["📈 Sale", "m:sale"], ["📹 VMS", "m:vms"]],
       [["📦 AJIO TAT", "m:tat"], ["🧾 AJIO SPF", "m:spf"]],
+      [["↩️ Returns", "m:returns"]],
       [["📋 Status", "st"], ["🖥 Dashboard", "db"]],
       [["❓ Help", "hp"]],
     ],
@@ -135,6 +153,14 @@ const SCREENS = {
     rows: [
       [["Today", "r:ajiotat"], ["Last 3 days", "r:ajiotat 3"]],
       [["Last 7 days", "r:ajiotat 7"]],
+      BACK,
+    ],
+  },
+  returns: {
+    title: "↩️ <b>Return Analysis</b>\n<i>Myntra x3 + Ajio + Flipkart, Drive + Telegram</i>\n\n" +
+      "Last month: sale 1st-last day, returns up to the 14th. Runs by itself on the 15th, 2 PM.",
+    rows: [
+      [["Last month", "r:returns"]],
       BACK,
     ],
   },
@@ -262,7 +288,7 @@ export default {
 
 // The bots' latest numbers for the dashboard, stored in KV under their key.
 const DASH_KEYS = new Set(["sale", "sale_today", "vms", "vms_erp", "ajio_tat", "ajio_spf",
-                           "run_sale", "run_vms", "run_ajio_tat", "run_ajio_spf"]);
+                           "returns", "run_sale", "run_vms", "run_ajio_tat", "run_ajio_spf", "run_returns"]);
 
 async function pushDashboard(request, env, key) {
   const token = env.DASHBOARD_TOKEN || "";
@@ -445,6 +471,7 @@ function describe(name, inputs) {
   if (inputs.erp_only) return "ERP vs VMS · yesterday and today";
   if (inputs.snapshot) return inputs.snapshot === "current" ? "This month" : inputs.snapshot;
   if (inputs.dry_run) return "Dry run · nothing posted";
+  if (name === "returns") return inputs.month ? `Month ${inputs.month}` : "Last month";
   if (name === "ajiospf") return "LIVE · posts on AJIO";
   if (inputs.days) return `Today + ${inputs.days} days back`;
   if (inputs.from) return inputs.to && inputs.to !== inputs.from ? `${d(inputs.from)} → ${d(inputs.to)}` : d(inputs.from);

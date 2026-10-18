@@ -54,14 +54,20 @@ for 15 minutes** (`coolDownPeriod`): request different reports together, the sam
 only after 15 minutes, and reuse completed jobs whenever they cover the dates. `schedule()`
 waits out one refusal (16 min); the exact refusal text is not known yet.
 
-### Return analysis (planned)
+### Return analysis (`python run.py returns`)
 
-Monthly sale vs return report, today a hand-run tool in `BINDAL EXPORTS\RETURN ANALYSIS`
-(`main.py`, its own CONTEXT.md; Drive folder id `1FQMg6atQgB1v6fGW1aIWoaZp5yFoM9bx`, the service
-account can edit it). To run on the 15th of every month at 2:00 PM IST: sale = previous month
-1st to last day, returns = previous month 1st to this month's 14th (two returns jobs per Myntra
-account, 15 minutes apart, or the earlier one reused). Portals: Myntra MAIN / DBCC / FMCC, Ajio,
-Flipkart. Where each input comes from (all found and checked 2026-10-18):
+Monthly sale vs return report for Myntra MAIN / DBCC / FMCC, Ajio and Flipkart. The rules are
+those of the hand-run tool in `BINDAL EXPORTS\RETURN ANALYSIS` (`main.py` and its CONTEXT.md),
+copied unchanged into `bindal/return_analysis/engine.py` (same SEP-26 output, checked file by
+file). Worker cron on the 15th: 9:30 AM `--request` (asks Myntra for the orders report and the
+first returns report per account, and Flipkart for its two reports), 2:00 PM the report: sale =
+last month 1st to last day, returns = last month 1st to this month's 14th (two Myntra returns
+jobs per account, the second after the 15-minute cooldown; existing jobs for the same dates are
+reused). MasterSheet comes from Drive `RETURN ANALYSIS/Supporting` (folder id
+`1FQMg6atQgB1v6fGW1aIWoaZp5yFoM9bx`); reports go to `Output/<MON-YY>/`, CSVs to `Template/`
+(replaced by name), Telegram gets the table and the ALL PORTAL workbook. A portal that cannot be
+fetched is left out and named; `--drive-input` uses the Drive `Input/` folder instead,
+`--no-upload` keeps everything in `output/returns`. `/returns [YYYY-MM]` runs it on demand. Where each input comes from (all found and checked 2026-10-18):
 
 | Input | API |
 |---|---|

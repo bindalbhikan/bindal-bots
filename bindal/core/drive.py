@@ -11,6 +11,7 @@ someone changed it on Drive in the meantime.
 """
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -86,3 +87,80 @@ class DriveFile:
                             headers={"Content-Type": XLSX})
         self.meta = self._check(r, "upload").json()
         log.info("Uploaded %s to Drive (modified %s)", self.name, self.meta.get("modifiedTime"))
+
+
+class DriveFolder:
+    """A Drive folder: list, read and write files in it by name (used for whole report folders)."""
+    FOLDER = "application/vnd.google-apps.folder"
+
+    def __init__(self, folder_id: str, http: AuthorizedSession | None = None):
+        self.folder_id = folder_id
+        self.http = http or AuthorizedSession(credentials(SCOPES))
+
+    def _check(self, r, what: str):
+        if not r.ok:
+            raise DriveError(f"Drive {what} failed: HTTP {r.status_code} {r.text[:300]}")
+        return r
+
+    def children(self) -> dict[str, dict]:
+        """name -> {id, name, mimeType} of the files and folders directly in this folder."""
+        out, token = {}, None
+        while True:
+            params = {"q": f"'{self.folder_id}' in parents and trashed=false", "pageSize": 1000,
+                      "fields": "nextPageToken,files(id,name,mimeType,modifiedTime)",
+                      "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"}
+            if token:
+                params["pageToken"] = token
+            data = self._check(self.http.get(API, params=params, timeout=60), "folder listing").json()
+            out.update({f["name"]: f for f in data.get("files", [])})
+            token = data.get("nextPageToken")
+            if not token:
+                return out
+
+    def subfolder(self, name: str, create: bool = False) -> "DriveFolder | None":
+        found = self.children().get(name)
+        if found and found["mimeType"] == self.FOLDER:
+            return DriveFolder(found["id"], self.http)
+        if not create:
+            return None
+        r = self.http.post(API, params={"supportsAllDrives": "true", "fields": "id"}, timeout=60,
+                           json={"name": name, "mimeType": self.FOLDER, "parents": [self.folder_id]})
+        log.info("Created Drive folder %s", name)
+        return DriveFolder(self._check(r, "folder create").json()["id"], self.http)
+
+    def download(self, name: str, dest: Path) -> Path | None:
+        """The named file into dest; None when the folder has no such file."""
+        found = self.children().get(name)
+        if not found or found["mimeType"] == self.FOLDER:
+            return None
+        r = self.http.get(f"{API}/{found['id']}", params={"alt": "media", "supportsAllDrives": "true"}, timeout=600)
+        self._check(r, f"download of {name}")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(r.content)
+        log.info("Downloaded %s from Drive (%d bytes)", name, len(r.content))
+        return dest
+
+    def download_all(self, dest: Path) -> list[Path]:
+        """Every file (not sub folders) of this folder into dest."""
+        return [p for name, f in self.children().items() if f["mimeType"] != self.FOLDER
+                for p in [self.download(name, dest / name)] if p]
+
+    def put(self, src: Path, mime: str = "application/octet-stream") -> str:
+        """Upload src under its own name: the file of that name is replaced (same id), else created."""
+        found = self.children().get(src.name)
+        if found:
+            r = self.http.patch(f"{UPLOAD}/{found['id']}", data=src.read_bytes(), timeout=600,
+                                params={"uploadType": "media", "supportsAllDrives": "true", "fields": "id"},
+                                headers={"Content-Type": mime})
+        else:
+            boundary = "bindalbotsboundary"
+            meta = json.dumps({"name": src.name, "parents": [self.folder_id]})
+            body = (f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{meta}\r\n"
+                    f"--{boundary}\r\nContent-Type: {mime}\r\n\r\n").encode() + src.read_bytes() + \
+                f"\r\n--{boundary}--".encode()
+            r = self.http.post(UPLOAD, data=body, timeout=600,
+                               params={"uploadType": "multipart", "supportsAllDrives": "true", "fields": "id"},
+                               headers={"Content-Type": f"multipart/related; boundary={boundary}"})
+        file_id = self._check(r, f"upload of {src.name}").json()["id"]
+        log.info("Uploaded %s to Drive", src.name)
+        return file_id

@@ -1,0 +1,69 @@
+name: Return analysis
+
+on:
+  # Started by the Telegram bot's Cloudflare cron (worker/src/worker.js): 9:30 AM IST on the 15th
+  # with request=1 (ask the portals for the slow reports), 2:00 PM IST on the 15th for the report.
+  workflow_dispatch:
+    inputs:
+      month:
+        description: "Report month (YYYY-MM), empty = last month"
+        default: ""
+      request:
+        description: "1 = only ask the portals for the reports (morning of the 15th)"
+        default: ""
+      drive_input:
+        description: "1 = use the files in the Drive folder's Input/ instead of fetching them"
+        default: ""
+      no_upload:
+        description: "1 = test run: reports only as the run's artifact, Drive not changed"
+        default: ""
+      chat_id:
+        description: "Telegram chat for this run's report (empty = default chat)"
+        default: ""
+
+concurrency:
+  group: returns
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      AJIO_USERNAME: ${{ secrets.AJIO_USERNAME }}
+      AJIO_PASSWORD: ${{ secrets.AJIO_PASSWORD }}
+      FLIPKART_EMAIL: ${{ secrets.FLIPKART_EMAIL }}
+      FLIPKART_PASSWORD: ${{ secrets.FLIPKART_PASSWORD }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
+      # the Myntra sessions are read from the worker with the dashboard token
+      DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
+      RETURN_DRIVE_FOLDER_ID: ${{ vars.RETURN_DRIVE_FOLDER_ID }}
+      RETURNS_WAIT_MINUTES: ${{ vars.RETURNS_WAIT_MINUTES }}
+      # inputs reach the shell only as variables, never pasted into the script
+      IN_MONTH: ${{ inputs.month }}
+      IN_REQUEST: ${{ inputs.request }}
+      IN_DRIVE_INPUT: ${{ inputs.drive_input }}
+      IN_NO_UPLOAD: ${{ inputs.no_upload }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run report
+        run: |
+          set -- ${IN_MONTH:+--month "$IN_MONTH"}
+          if [ -n "$IN_REQUEST" ]; then set -- "$@" --request; fi
+          if [ -n "$IN_DRIVE_INPUT" ]; then set -- "$@" --drive-input; fi
+          if [ -n "$IN_NO_UPLOAD" ]; then set -- "$@" --no-upload; fi
+          python run.py returns "$@"
+      - name: Upload run output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: returns-${{ github.run_id }}
+          path: output/
+          if-no-files-found: ignore
+          retention-days: 14

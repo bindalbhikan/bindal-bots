@@ -7,6 +7,7 @@ Flipkart's own warehouses (location_id), so only FBF orders are counted.
 from __future__ import annotations
 
 import logging
+import time
 from collections import Counter
 from datetime import date
 
@@ -91,3 +92,67 @@ class FlipkartClient:
         log.info("Flipkart FBF: gross %s, cancel %s",
                  {f"{d}": gross[d] for d in days}, {f"{d}": cancel[d] for d in days})
         return gross, cancel
+
+    # ------------------------------------------------------------ report centre
+    def _report_api(self, method: str, path: str, **kw) -> requests.Response:
+        r = self.s.request(method, f"{BASE}/napi/metrics/bizReport/{path}", timeout=self.timeout,
+                           headers={"fk-csrf-token": self.csrf, "Content-Type": "application/json",
+                                    "Origin": BASE, "Referer": f"{BASE}/index.html"}, **kw)
+        if r.status_code != 200:
+            raise FlipkartError(f"Flipkart report centre {path.split('?')[0]}: HTTP {r.status_code} {r.text[:200]}")
+        return r
+
+    def report_requests(self, pages: int = 3) -> list[dict]:
+        """The report centre's one-time report requests, newest first."""
+        out = []
+        for page in range(1, pages + 1):
+            data = self._report_api("POST", "report/getReportsV2", json={
+                "reportGroup": None, "reportName": None, "enable": True, "status": None,
+                "page_size": 50, "starting_page": page}).json()
+            out += data.get("report_requests") or []
+            if not data.get("has_more"):
+                break
+        return out
+
+    @staticmethod
+    def _dates(req: dict) -> list[str]:
+        return next((f.get("value") for f in req.get("filters") or [] if f.get("name") == "date"), [])
+
+    def request_report(self, name: str, start: date, end: date) -> str:
+        """Request id of a report centre report (e.g. "Sales Report", "Returns") for exactly
+        start..end: a finished or running request for the same dates is reused, else one is submitted."""
+        want = [f"{start}", f"{end}"]
+        req = next((q for q in self.report_requests() if q.get("report_name") == name
+                    and self._dates(q) == want and q.get("status") not in ("FAILED", "ERROR")), None)
+        if req:
+            log.info("Flipkart %s %s..%s already requested (%s)", name, start, end, req.get("status"))
+            return req["request_id"]
+        body = {"from_date": want[0], "to_date": want[1], "file_format": "EXCEL", "type": "ONETIME",
+                "filters": [{"values": want, "operator": "RANGE", "name": "date"}]}
+        rid = self._report_api("POST", f"submitReport?reportName={requests.utils.quote(name)}",
+                               json=body).json()["request_id"]["request_id"]
+        log.info("Flipkart %s %s..%s requested (%s)", name, start, end, rid)
+        return rid
+
+    def report(self, name: str, start: date, end: date, wait_minutes: int = 45,
+               poll_seconds: int = 30) -> tuple[str, bytes]:
+        """(file name, xlsx bytes) of a report centre report for exactly start..end, waited for
+        until it is stored (Flipkart says up to 30 minutes)."""
+        rid = self.request_report(name, start, end)
+        req = None
+        deadline = time.time() + wait_minutes * 60
+        while True:
+            req = next((q for q in self.report_requests(1) if q.get("request_id") == rid), req)
+            status = (req or {}).get("status")
+            if status == "FILE_STORED":
+                break
+            if status in ("FAILED", "ERROR"):
+                raise FlipkartError(f"Flipkart {name} report {rid} {status}")
+            if time.time() > deadline:
+                raise FlipkartError(f"Flipkart {name} report not ready after {wait_minutes} min ({status})")
+            log.info("Flipkart %s report: %s, waiting", name, status or "?")
+            time.sleep(poll_seconds)
+        file_name = f"{rid}_{req['created_at']}.xlsx"
+        r = self._report_api("GET", f"downloadReport/{file_name}?token={rid}&sellerId={self.seller_id}")
+        log.info("Flipkart %s report downloaded (%d bytes)", name, len(r.content))
+        return f"Flipkart {name} {start} to {end}.xlsx", r.content

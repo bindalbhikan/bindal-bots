@@ -127,6 +127,17 @@ class AjioClient:
             raise AjioError(f"RTV report download failed: HTTP {r.status_code} {r.text[:200]}")
         return r.content
 
+    def order_report(self, start: date, end: date) -> bytes:
+        """The Dropship order report (xlsx, "DropShipOrderReports") for both POBs (max 31 days)."""
+        r = self._req("POST", f"/malekith/vision/v1/dropship/order/report/download?from={start}&to={end}",
+                      data="pobIds=" + "%2C".join(POB_IDS),
+                      headers={"Accept": "application/json, text/plain, */*", "X-Tenant": "AJIO",
+                               "x-pob-id": POB_IDS[0], "businessModel": "B2C",
+                               "Content-Type": "application/x-www-form-urlencoded"})
+        if r.status_code != 200 or "spreadsheet" not in r.headers.get("content-type", ""):
+            raise AjioError(f"Order report download failed: HTTP {r.status_code} {r.text[:200]}")
+        return r.content
+
     # ------------------------------------------------------------ tickets
     def ticket_list(self, start: date, end: date, size: int = 200) -> list[dict]:
         out, page, pages = [], 0, 1

@@ -161,12 +161,12 @@ def _ts(ms) -> date | None:
     return datetime.fromtimestamp(ms / 1000).date() if ms else None
 
 
-def job_range(job: dict) -> tuple[date, date] | None:
-    """(first, last day) of a usable Seller_Orders_Report job for the store: not failed, and
+def job_range(job: dict, report_id: int = REPORT_ID) -> tuple[date, date] | None:
+    """(first, last day) of a usable job of that report for the store: not failed, and
     requested after its last day (so that day was complete). None for any other job."""
     q = job.get("queryParams") or {}
     status = str(job.get("status") or "").upper()
-    if job.get("reportId") != REPORT_ID or any(f in status for f in FAILED):
+    if job.get("reportId") != report_id or any(f in status for f in FAILED):
         return None
     if str(q.get("storeId")) != str(QUERY["storeId"]) or q.get("partnerType") != QUERY["partnerType"]:
         return None
@@ -176,6 +176,12 @@ def job_range(job: dict) -> tuple[date, date] | None:
         return None
     created = _ts(job.get("createdOn"))
     return (first, last) if created and created > last else None
+
+
+def exact_job(jobs: list[dict], report_id: int, start: date, end: date) -> dict | None:
+    """Newest usable job of that report for exactly start..end (done or still running)."""
+    fit = [j for j in jobs if job_range(j, report_id) == (start, end)]
+    return max(fit, key=lambda j: j.get("createdOn") or 0) if fit else None
 
 
 def _days(first: date, last: date) -> set[date]:
@@ -295,8 +301,23 @@ class MyntraPortal:
         if r.status_code != 200 or not r.content:
             raise RuntimeError(f"SJIT report {job.get('id')} download failed: HTTP {r.status_code}")
         name = url.rsplit("/", 1)[-1].split("?")[0] or f"Seller_Orders_Report_{job.get('id')}.csv"
-        log.info("SJIT report %s downloaded (%d bytes)", name, len(r.content))
+        log.info("Myntra report %s downloaded (%d bytes)", name, len(r.content))
         return name, r.content
+
+    def ensure(self, report_id: int, start: date, end: date) -> dict:
+        """A job of that report for exactly start..end: an existing one (done or running), else a
+        new request (a cooldown refusal is waited out)."""
+        job = exact_job(self.jobs(100), report_id, start, end)
+        if job:
+            log.info("Report %s for %s..%s already on the portal (job %s, %s)",
+                     report_id, start, end, job.get("id"), job.get("status"))
+            return job
+        return self.schedule(start, end, report_id)
+
+    def collect(self, job: dict, wait_minutes: int = 40, poll_seconds: int = 30) -> tuple[str, bytes]:
+        """(file name, CSV bytes) of the job once it is done."""
+        job = self._wait(job, time.time() + wait_minutes * 60, poll_seconds)
+        return self.download(job)
 
     def request(self, days: list[date]) -> dict | None:
         """Make sure a report for `days` exists or is on its way: schedules one only for the

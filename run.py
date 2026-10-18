@@ -5,12 +5,14 @@
   vms        Myntra VMS report            python run.py vms --help
   ajio-tat   AJIO dispatch TAT            python run.py ajio-tat --help
   ajio-spf   AJIO SPF claims              python run.py ajio-spf --help
+  returns    monthly return analysis      python run.py returns --help
 """
 import importlib
 import sys
 
 BOTS = {"sale": "bindal.sale.pipeline", "vms": "bindal.vms.pipeline",
-        "ajio-tat": "bindal.ajio_tat.pipeline", "ajio-spf": "bindal.ajio_spf.pipeline"}
+        "ajio-tat": "bindal.ajio_tat.pipeline", "ajio-spf": "bindal.ajio_spf.pipeline",
+        "returns": "bindal.return_analysis.pipeline"}
 
 
 def main(argv: list[str]) -> int:

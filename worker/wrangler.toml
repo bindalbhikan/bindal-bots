@@ -5,11 +5,13 @@ workers_dev = true
 
 # Daily auto runs (UTC; IST = UTC + 5:30). Which report runs at which time: SCHEDULE in src/worker.js.
 #   30 3 * * *  ->  9:00 AM IST  SJIT report request on the Myntra portal (sale workflow)
+#   0 4 15 * *  ->  9:30 AM IST on the 15th  return analysis: ask the portals for the reports
 #   0 6 * * WED,SAT -> 11:30 AM IST Wednesday + Saturday  ajiospf
+#   30 8 15 * * ->  2:00 PM IST on the 15th  return analysis
 #   0 10 * * *  ->  3:30 PM IST  sale
 #   0 12 * * *  ->  5:30 PM IST  vms, ajiotat
 [triggers]
-crons = ["30 3 * * *", "0 6 * * WED,SAT", "0 10 * * *", "0 12 * * *"]
+crons = ["30 3 * * *", "0 4 15 * *", "0 6 * * WED,SAT", "30 8 15 * *", "0 10 * * *", "0 12 * * *"]
 
 [vars]
 # Extra Telegram users allowed to send commands (comma-separated chat ids, from DMs with the bot).
