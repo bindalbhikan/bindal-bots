@@ -35,6 +35,8 @@ jobs:
     env:
       TZ: Asia/Kolkata
       RUN_MODE: github-actions
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
       OMSGURU_EMAIL: ${{ secrets.OMSGURU_EMAIL }}
       OMSGURU_PASSWORD: ${{ secrets.OMSGURU_PASSWORD }}
       OMSGURU_OTP: ${{ secrets.OMSGURU_OTP }}
@@ -67,21 +69,21 @@ jobs:
       - name: Run report
         run: |
           if [ -n "$IN_SNAPSHOT" ]; then
-            python run.py sale --snapshot "$IN_SNAPSHOT"
+            bash scripts/ci_run.sh sale --snapshot "$IN_SNAPSHOT"
           elif [ -n "$IN_SJIT_REQUEST" ]; then
-            python run.py sale --sjit-request
+            bash scripts/ci_run.sh sale --sjit-request
           elif [ -n "$IN_TODAY" ]; then
-            python run.py sale --today
+            bash scripts/ci_run.sh sale --today
           elif [ -n "$IN_FROM" ]; then
-            python run.py sale --from "$IN_FROM" ${IN_TO:+--to "$IN_TO"}
+            bash scripts/ci_run.sh sale --from "$IN_FROM" ${IN_TO:+--to "$IN_TO"}
           else
-            python run.py sale
+            bash scripts/ci_run.sh sale
           fi
-      - name: Upload run output
+      - name: Upload run output (encrypted)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sale-${{ github.run_id }}
-          path: output/
+          path: secure/
           if-no-files-found: ignore
           retention-days: 14

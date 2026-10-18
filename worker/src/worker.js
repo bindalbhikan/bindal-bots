@@ -1,7 +1,7 @@
 // Telegram webhook -> GitHub Actions workflow_dispatch for the Bindal report bots.
 //
 // Secrets (wrangler secret put): TELEGRAM_BOT_TOKEN, GITHUB_TOKEN, WEBHOOK_SECRET, ALLOWED_CHAT_IDS
-// ALLOWED_CHAT_IDS (secret) + EXTRA_CHAT_IDS (wrangler.toml var) are comma-separated chat ids;
+// ALLOWED_CHAT_IDS + EXTRA_CHAT_IDS (both secrets: the repo is public) are comma-separated chat ids;
 // messages and button taps from any other chat are ignored. Each run's report goes to the chat
 // that asked for it.
 //

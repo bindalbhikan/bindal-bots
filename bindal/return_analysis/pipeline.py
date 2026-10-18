@@ -26,7 +26,6 @@ from . import sources
 
 log = logging.getLogger("bindal.returns")
 
-DEFAULT_FOLDER = "1FQMg6atQgB1v6fGW1aIWoaZp5yFoM9bx"     # BINDAL EXPORTS/RETURN ANALYSIS
 MYNTRA_ACCOUNTS = ["MAIN", "DBCC", "FMCC"]
 SHORT = {"MYNTRA MAIN": "Myn MAIN", "MYNTRA DBCC": "Myn DBCC", "MYNTRA FMCC": "Myn FMCC", "AJIO": "Ajio",
          "FLIPKART": "Flipkart", "MYNTRA COMBINED": "Myntra", "ALL PORTAL": "ALL"}
@@ -199,7 +198,9 @@ def run(args) -> int:
         return run_request(args, sale, ret, parts)
 
     work = Path(tempfile.mkdtemp(prefix="returns_"))
-    root = DriveFolder(env("RETURN_DRIVE_FOLDER_ID") or DEFAULT_FOLDER)
+    if not env("RETURN_DRIVE_FOLDER_ID"):
+        raise RuntimeError("RETURN_DRIVE_FOLDER_ID (Drive folder BINDAL EXPORTS/RETURN ANALYSIS) not set")
+    root = DriveFolder(env("RETURN_DRIVE_FOLDER_ID"))
     supporting = root.subfolder("Supporting")
     if not supporting or not supporting.download("MasterSheet.xlsx", work / "Supporting" / "MasterSheet.xlsx"):
         raise RuntimeError("MasterSheet.xlsx not found in RETURN ANALYSIS/Supporting on Drive")

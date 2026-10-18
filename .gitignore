@@ -25,3 +25,4 @@ scripts/*.txt
 return genra.json
 flipkart cap.json
 fl tax sel report.json
+.wrangler/

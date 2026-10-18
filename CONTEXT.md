@@ -63,8 +63,8 @@ file). Worker cron on the 15th: 9:00 AM `--request` (asks Myntra for the orders 
 first returns report per account, and Flipkart for its two reports), 2:00 PM the report: sale =
 last month 1st to last day, returns = last month 1st to this month's 14th (two Myntra returns
 jobs per account, the second after the 15-minute cooldown; existing jobs for the same dates are
-reused). MasterSheet comes from Drive `RETURN ANALYSIS/Supporting` (folder id
-`1FQMg6atQgB1v6fGW1aIWoaZp5yFoM9bx`); reports go to `Output/<MON-YY>/`, CSVs to `Template/`
+reused). MasterSheet comes from Drive `RETURN ANALYSIS/Supporting` (folder id in
+the `RETURN_DRIVE_FOLDER_ID` secret); reports go to `Output/<MON-YY>/`, CSVs to `Template/`
 (replaced by name), Telegram gets the table and the ALL PORTAL workbook. A portal that cannot be
 fetched is left out and named; `--drive-input` uses the Drive `Input/` folder instead,
 `--no-upload` keeps everything in `output/returns`. `/returns [YYYY-MM]` runs it on demand.
@@ -124,6 +124,14 @@ XpressBees). One package per bot: `bindal/sale`, `vms`, `ajio_tat`, `ajio_spf`.
 `python -m pytest` runs the tests.
 
 ## Settings and secrets — never in git
+
+**The GitHub repo is public** (since 2026-10-18, for unlimited Actions minutes): code, run logs
+and artifacts are readable by anyone. So every workflow runs its bot through
+`scripts/ci_run.sh`: the public log shows only the exit code, the bot's log and `output/` are
+uploaded only as `secure/output.tar.gz.enc` (AES, key = `ARTIFACT_KEY` secret, also in the local
+`.env`). Read a run with `python scripts/run_output.py <run id>` (files in
+`output/runs/<run id>/`). Ids that are not code stay in secrets (`RETURN_DRIVE_FOLDER_ID`, the
+worker's `EXTRA_CHAT_IDS`). Never commit or print logins, cookies or customer data.
 
 - One `.env` here for local runs (copy of `.env.example`), plus `service_account.json` (Google
   service account `ajio-tat-bot@storied-port-441507-k7.iam.gserviceaccount.com`, Editor on the

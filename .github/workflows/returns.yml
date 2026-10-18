@@ -35,6 +35,8 @@ jobs:
     env:
       TZ: Asia/Kolkata
       RUN_MODE: github-actions
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
       AJIO_USERNAME: ${{ secrets.AJIO_USERNAME }}
       AJIO_PASSWORD: ${{ secrets.AJIO_PASSWORD }}
       FLIPKART_EMAIL: ${{ secrets.FLIPKART_EMAIL }}
@@ -45,7 +47,7 @@ jobs:
       # the Myntra sessions are read from the worker with the dashboard token
       DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
       DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
-      RETURN_DRIVE_FOLDER_ID: ${{ vars.RETURN_DRIVE_FOLDER_ID }}
+      RETURN_DRIVE_FOLDER_ID: ${{ secrets.RETURN_DRIVE_FOLDER_ID }}
       RETURNS_WAIT_MINUTES: ${{ vars.RETURNS_WAIT_MINUTES }}
       # inputs reach the shell only as variables, never pasted into the script
       IN_MONTH: ${{ inputs.month }}
@@ -63,12 +65,12 @@ jobs:
           if [ -n "$IN_DRIVE_INPUT" ]; then set -- "$@" --drive-input; fi
           if [ -n "$IN_NO_UPLOAD" ]; then set -- "$@" --no-upload; fi
           if [ -n "$IN_BACKFILL_YEAR" ]; then set -- "$@" --backfill-year "$IN_BACKFILL_YEAR"; fi
-          python run.py returns "$@"
-      - name: Upload run output
+          bash scripts/ci_run.sh returns "$@"
+      - name: Upload run output (encrypted)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: returns-${{ github.run_id }}
-          path: output/
+          path: secure/
           if-no-files-found: ignore
           retention-days: 14
