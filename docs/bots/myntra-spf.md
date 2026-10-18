@@ -14,7 +14,13 @@ On demand: `/myntraspf`.
 * **Return received**: ERP GRN, then **OMSGuru** (only rows whose FINAL RETURN STATUS is blank,
   created in the last 180 days, matched on AWBs / store order id: "Return Received OMSGuru" or the
   current status), then the manual sheet. The engine runs twice (before and after OMSGuru).
+* **SJIT and FBM orders are not worked** (`NOT_WORKED_MODELS`): their rows stay on the sheets,
+  but CLAIM STATUS is always NON ELIGIBLE, OMSGuru does not check them, and the summaries and the
+  dashboard leave them out. A row with a blank `model` from a warehouse that is not one of ours
+  (ours = the warehouses with PPMP orders: 46148, 24504, 50829, 56765) is marked `FBM` (Myntra
+  warehouses 28 / 36 / 81 serve both SJIT and FBM, so the warehouse alone cannot tell).
 * 18 Oct: 47,502 to 52,772 rows; GRN 2,011 received; OMSGuru 5,969 checked, 447 received.
+  Without SJIT / FBM: MAIN 915 open (was 5,340), 69 eligible (was 435); OMSGuru checks 1,553.
 
 **Later**: raising SPF claims on Myntra (needs captures of the claim form, the ticket export and the
 payment download); only no-video claim types, existing-ticket check, caps, dry run first.

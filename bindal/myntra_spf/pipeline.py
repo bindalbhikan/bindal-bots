@@ -179,11 +179,17 @@ def final_status(r: dict) -> str:
     return ""
 
 
+def not_worked(r: dict) -> bool:
+    """SJIT and FBM orders are not worked for SPF (engine.NOT_WORKED_MODELS)."""
+    from .engine import NOT_WORKED_MODELS
+    return str(r.get("model") or "").strip().upper() in NOT_WORKED_MODELS
+
+
 def claim_status(r: dict, age) -> str:
     """CLAIM STATUS as the master's formula computes it (SPF POLICY v5)."""
     if str(r.get("TICKET ID") or "").strip():
         return "CLAIM DONE"
-    if age is None or final_status(r):
+    if not_worked(r) or age is None or final_status(r):
         return "NON ELIGIBLE"
     if r.get("deliver_to_seller_date"):
         return "ELIGIBLE" if age <= 7 else "EXPIRED"
@@ -194,7 +200,8 @@ AGE_BUCKETS = ((30, "0-30"), (60, "31-60"), (120, "61-120"), (None, "120+"))
 
 
 def master_stats(path: Path, today: date, months: int = 6) -> dict:
-    """Dashboard numbers of the master, per account and in total: final status, where the
+    """Dashboard numbers of the master (SJIT / FBM rows only counted as not_worked), per account
+    and in total: final status, where the
     received ones were found, claim status with order value, open returns by age, and returns
     per month (last `months`). Same rules as the master's own formulas."""
     from openpyxl import load_workbook
@@ -216,6 +223,9 @@ def master_stats(path: Path, today: date, months: int = 6) -> dict:
         for values in rows:
             r = dict(zip(head, values))
             if not r.get("order_line_id"):
+                continue
+            if not_worked(r):
+                a["not_worked"] = a.get("not_worked", 0) + 1
                 continue
             a["rows"] += 1
             final = final_status(r) or "Open"
@@ -270,7 +280,7 @@ def open_returns(path: Path, since: date) -> dict[tuple, dict]:
             next(rows, None)
         for values in rows:
             r = dict(zip(head, values))
-            if not r.get("order_line_id") or final_status(r):
+            if not r.get("order_line_id") or final_status(r) or not_worked(r):
                 continue
             created = r.get("return_created_date")
             created = created.date() if hasattr(created, "date") else None

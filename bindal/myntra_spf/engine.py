@@ -1457,12 +1457,16 @@ def build_formulas(n):
               'IF(AND({t}="Return",{k}=""),"NO RETURN TRACKING","RETURN IN TRANSIT"))))'
               .format(d=dlv, f=final, s=st, t=ty, k=trk))
 
+    # SJIT and FBM orders are not worked for SPF: never a claim (kept as rows only)
+    mdl = C['model'] + str(n)
+    not_worked = 'OR(' + ','.join('{m}="{x}"'.format(m=mdl, x=x) for x in NOT_WORKED_MODELS) + ')'
     f_status = ('=IF({k}<>"","CLAIM DONE",'
+                'IF({nw},"NON ELIGIBLE",'
                 'IF(NOT(ISNUMBER({a})),"NON ELIGIBLE",'
                 'IF({f}<>"","NON ELIGIBLE",'
                 'IF({d}<>"",IF({a}<=7,"ELIGIBLE","EXPIRED"),'
-                'IF({a}<60,"UPCOMING CLAIM",IF({a}<=120,"ELIGIBLE","EXPIRED"))))))'
-                .format(k=tkt, d=dlv, a=age, f=final))
+                'IF({a}<60,"UPCOMING CLAIM",IF({a}<=120,"ELIGIBLE","EXPIRED")))))))'
+                .format(k=tkt, d=dlv, a=age, f=final, nw=not_worked))
 
     # What this order line actually left in the bank: the sale, minus the return
     # reversal, plus any SPF payout. RETURN CHARGE is NOT added here - it is already
@@ -1696,6 +1700,7 @@ NOTES = {
                    'otherwise return_created_date.'),
     'CLAIM STATUS': ('Per SPF POLICY.pdf Annexure 1.\n\n'
                      'CLAIM DONE - a ticket has already been raised\n\n'
+                     'SJIT / FBM order -> NON ELIGIBLE, these are not worked\n\n'
                      'you confirmed you have it (FINAL RETURN STATUS =\n'
                      'Return Received) -> NON ELIGIBLE, nothing to claim\n\n'
                      'delivery date present - return not received claim,\n'
@@ -1857,8 +1862,10 @@ DATE_SUMMARY_COLS = [c for c in SUMMARY_COLS if c[0] in (
     'PENDING AMT', 'ELIGIBLE CLAIMS', 'PENDING CLAIM AMT', 'SPF PAID AMT')]
 SUMMARY_SHEET = 'SUMMARY'
 DATE_SUMMARY_SHEET = 'DATE SUMMARY'
-# Models left out of both summaries - only the rest (PPMP) is totalled
-SUMMARY_EXCLUDE_MODELS = ['SJIT', 'FBM']
+# SJIT and FBM orders are not worked for SPF: no claim, no OMSGuru check, left out of both
+# summaries - only the rest (PPMP) is totalled. Their rows stay on the account sheets.
+NOT_WORKED_MODELS = ['SJIT', 'FBM']
+SUMMARY_EXCLUDE_MODELS = NOT_WORKED_MODELS
 
 
 
@@ -2348,7 +2355,7 @@ def main():
 
     data = {}
     totals = {'TRANSIT': 0, 'DELIVERED': 0, 'dropped_delivered': 0, 'dupes': 0,
-              'new': 0, 'model_lookup': 0, 'model_wh': 0, 'model_blank': 0,
+              'new': 0, 'model_lookup': 0, 'model_wh': 0, 'model_fbm': 0, 'model_blank': 0,
               'manual_hit': 0, 'legacy_hit': 0, 'payment_hit': 0, 'charge_hit': 0,
               'order_hit': 0, 'too_old': 0, 'settled_hit': 0, 'grn_hit': 0,
               'debit_hit': 0, 'dispatch_hit': 0}
@@ -2379,6 +2386,8 @@ def main():
             m = rec.get('model')
             if m and wh:
                 wh_model.setdefault(wh, set()).add(str(m))
+        # our own warehouses: the ones whose orders are PPMP
+        own_wh = {wh for wh, models in wh_model.items() if 'PPMP' in models}
 
         # how many master rows share one order line - the return charge fallback is
         # only safe where the answer is exactly one (see read_payments)
@@ -2402,6 +2411,11 @@ def main():
                 if seen and len(seen) == 1:
                     rec['model'] = next(iter(seen))
                     totals['model_wh'] += 1
+                elif rec.get('warehouse_id') is not None and norm(rec.get('warehouse_id')) not in own_wh:
+                    # not one of our own (PPMP) warehouses: a Myntra warehouse order, worked
+                    # like the other FBM orders - i.e. not at all
+                    rec['model'] = 'FBM'
+                    totals['model_fbm'] += 1
                 else:
                     totals['model_blank'] += 1
 
@@ -2524,8 +2538,8 @@ def main():
              len(data['MAIN']), len(data['DBCC']), len(data['FMCC'])))
     print('new rows added        : %d' % totals['new'])
     print('duplicate keys merged : %d  (no extra row created)' % totals['dupes'])
-    print('model filled - %d from lookup, %d from warehouse, %d still blank'
-          % (totals['model_lookup'], totals['model_wh'], totals['model_blank']))
+    print('model filled - %d from lookup, %d from warehouse, %d FBM (not our warehouse), %d still blank'
+          % (totals['model_lookup'], totals['model_wh'], totals['model_fbm'], totals['model_blank']))
     print('marked "Return Received" from the manual sheet: %d rows'
           % totals['manual_hit'])
     print('OMSGURU / MANUAL cells restored from an older master: %d'

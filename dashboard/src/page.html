@@ -643,9 +643,10 @@ function renderReturns() {
 // ------------------------------------------------------------------ Myntra SPF
 let mspfAccount = "All";
 function mspfTotal(accounts) {
-  const t = { rows: 0, final: {}, received_by: {}, claims: {}, open_age: {}, months: {} };
+  const t = { rows: 0, not_worked: 0, final: {}, received_by: {}, claims: {}, open_age: {}, months: {} };
   for (const a of Object.values(accounts)) {
     t.rows += a.rows;
+    t.not_worked += a.not_worked || 0;
     for (const [k, v] of Object.entries(a.final)) t.final[k] = (t.final[k] || 0) + v;
     for (const [k, v] of Object.entries(a.received_by)) t.received_by[k] = (t.received_by[k] || 0) + v;
     for (const [k, v] of Object.entries(a.claims)) { const c = (t.claims[k] ||= { count: 0, value: 0, valued: 0 }); c.count += v.count; c.value += v.value; c.valued += v.valued || 0; }
@@ -672,7 +673,8 @@ function renderMspf() {
       <td class="num">${n(x.claims.ELIGIBLE?.count || 0)}</td><td class="num">${rs(x.claims.ELIGIBLE?.value || 0)}</td></tr>`; }).join("");
   el.className = "grid two";
   el.innerHTML =
-    card(`Returns by final status · ${n(a.rows)}`, `Master as of ${m.day ? dshort(m.day) : when(m.published_at)}`,
+    card(`Returns by final status · ${n(a.rows)}`, `Master as of ${m.day ? dshort(m.day) : when(m.published_at)}` +
+      (a.not_worked ? ` · ${n(a.not_worked)} SJIT / FBM rows not worked, left out` : ""),
       `<div class="chips">${chips("macc", ["All", ...names], mspfAccount)}</div>
        <table><tbody>${finals.map(([k, label, col]) => `<tr><td>${label}</td><td class="barcell"><div class="bar" style="width:${((a.final[k] || 0) / maxF) * 100}%;background:${col}"></div></td>
          <td class="num">${n(a.final[k] || 0)}</td><td class="num">${pf(pct(a.final[k] || 0, a.rows))}</td></tr>`).join("")}</tbody></table>
