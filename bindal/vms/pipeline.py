@@ -157,11 +157,10 @@ def _erp_table(codes: list[str], counts: dict) -> str:
 
 
 def erp_text(e: dict) -> str:
-    """ERP vs VMS for Telegram: yesterday, today and the month, 24 characters wide, fits a phone."""
+    """ERP vs VMS for Telegram: parcels packed yesterday and today, 24 characters wide, fits a phone."""
     out = ["🏭 <b>ERP vs VMS</b>", "<i>parcels packed in the ERP, with a VMS video</i>"]
-    for r, label in zip(e.get("recent", []), ("Yesterday", "Today")):
+    for r, label in zip(e["days"], ("Yesterday", "Today")):
         out += ["", f"<b>📅 {label} · {r['date']:%d %b}</b>", _erp_table(e["codes"], r["codes"])]
-    out += ["", f"<b>🗓 {e['from']:%d %b} - {e['to']:%d %b}</b>", _erp_table(e["codes"], e["total"])]
     notes = []
     if e["missing"]:
         notes.append(f"{len(e['missing'])} packed parcels have no VMS (sheet: ERP NO VMS)")
@@ -173,7 +172,7 @@ def erp_text(e: dict) -> str:
 
 
 def run_erp(book) -> tuple[dict | None, str]:
-    """Month-to-date ERP vs VMS; a failure is reported, it never stops the VMS report."""
+    """ERP vs VMS for yesterday and today; a failure is reported, it never stops the VMS report."""
     from . import erp_vms
     try:
         return erp_vms.run(book, date.today(), CODES, channels()), ""
@@ -263,7 +262,7 @@ def main(argv=None) -> int:
     p.add_argument("--snapshot", nargs="?", const="current", metavar="YYYY-MM",
                    help="send a picture of a month sheet to Telegram (default: this month)")
     p.add_argument("--erp-only", action="store_true",
-                   help="only the month-to-date ERP vs VMS sheets (parcels packed in the ERP vs VMS scans)")
+                   help="only ERP vs VMS (parcels packed in the ERP yesterday and today vs VMS scans)")
     p.add_argument("--no-erp", action="store_true", help="skip the ERP vs VMS part")
     p.add_argument("--no-drive", action="store_true", help="use the local workbook instead of the Drive file")
     p.add_argument("--no-telegram", action="store_true", help="do not send the Telegram message")

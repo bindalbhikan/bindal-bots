@@ -14,7 +14,7 @@ on:
         description: "Picture of a month sheet instead of the report (current or YYYY-MM)"
         default: ""
       erp_only:
-        description: "1 = only the month-to-date ERP vs VMS sheets"
+        description: "1 = only ERP vs VMS (packed yesterday and today)"
         default: ""
       chat_id:
         description: "Telegram chat for this run's report (empty = default chat)"

@@ -75,8 +75,18 @@ def test_erp_text_shows_yesterday_and_today():
     zero = {"TLPL": [0, 0], OTHER: [0, 0]}
     e = {"from": date(2026, 10, 1), "to": date(2026, 10, 15), "codes": ["TLPL", OTHER],
          "total": {"TLPL": [10, 9], OTHER: [0, 0]}, "missing": [], "unknown_channel": 0,
-         "recent": [{"date": date(2026, 10, 14), "codes": {"TLPL": [4, 3], OTHER: [0, 0]}},
-                    {"date": date(2026, 10, 15), "codes": zero}]}
+         "days": [{"date": date(2026, 10, 14), "codes": {"TLPL": [4, 3], OTHER: [0, 0]}},
+                  {"date": date(2026, 10, 15), "codes": zero}]}
     text = erp_text(e)
     assert "Yesterday · 14 Oct" in text and "Today · 15 Oct" in text
     assert "TLPL      4     3  75.0%" in text
+
+
+def test_erp_month_days_reads_back_the_sheet(tmp_path):
+    book = month_book(tmp_path)
+    per_day = {date(2026, 10, 2): {"TLPL": [4, 3], "MMRJ": [2, 2]}}
+    book.write_erp_month(2026, 10, per_day, ["TLPL", "MMRJ"], upto=date(2026, 10, 3))
+    days = book.erp_month_days(2026, 10, ["TLPL", "MMRJ", OTHER])
+    assert days[date(2026, 10, 2)] == {"TLPL": [4, 3], "MMRJ": [2, 2], OTHER: [0, 0]}
+    assert days[date(2026, 10, 3)]["TLPL"] == [0, 0] and len(days) == 3
+    assert book.erp_month_days(2026, 9, ["TLPL"]) == {}

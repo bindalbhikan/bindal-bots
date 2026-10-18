@@ -240,9 +240,25 @@ class VmsWorkbook:
             ws.column_dimensions[get_column_letter(c)].width = 8
         ws.freeze_panes = "B4"
 
+    def erp_month_days(self, year: int, month: int, codes: list[str]) -> dict:
+        """{date: {code: [erp, vms]}} as the 'ERP VS VMS MON-YY' sheet has them (empty if no sheet)."""
+        name = f"ERP VS VMS {calendar.month_abbr[month].upper()}-{year % 100:02d}"
+        if name not in self.wb.sheetnames:
+            return {}
+        ws = self.wb[name]
+        col = {str(ws.cell(2, c).value).strip(): c for c in range(2, ws.max_column + 1) if ws.cell(2, c).value}
+        out = {}
+        for r in range(FIRST_ROW, ws.max_row + 1):
+            d = _as_date(ws.cell(r, 1).value)
+            if not isinstance(d, date):
+                continue
+            out[d] = {c: ([_as_int(ws.cell(r, col[c]).value), _as_int(ws.cell(r, col[c] + 1).value)]
+                          if c in col else [0, 0]) for c in codes}
+        return out
+
     def write_erp_no_vms(self, first: date, upto: date, rows: list[dict]) -> None:
-        """'ERP NO VMS': packed in the ERP, no VMS scan. This month's rows are replaced each run;
-        earlier months stay as they were."""
+        """'ERP NO VMS': packed in the ERP, no VMS scan. Rows dated first..upto are replaced;
+        the others stay as they were."""
         header = ["DATE", "CHANNEL CODE", "AWB", "PACKED BY", "VOUCHER", "SKU"]
         st = self._styles()
         if ERP_NO_VMS_SHEET in self.wb.sheetnames:

@@ -1,5 +1,5 @@
-"""ERP vs VMS: every Myntra parcel packed in the ERP since the 1st of the month, and whether
-VMS has its packing video.
+"""ERP vs VMS: every Myntra parcel packed in the ERP yesterday and today, and whether VMS has
+its packing video. Only those two days are fetched on a run; earlier days stay in the sheets.
 
   AWBs     ERP packing report (Shipping Label Print), portal MYNTRA: its "Order ID" is the
            Myntra tracking number. One parcel can have several SKU lines; it counts once, on
@@ -80,39 +80,40 @@ def compare(parcels: dict[str, dict], codes_of: dict[str, str], scanned: set[str
 
 
 def run(book, today: date, codes: list[str], chans: dict[str, str]) -> dict:
-    """Month-to-date ERP vs VMS into the workbook; returns what the report and dashboard show."""
-    first = today.replace(day=1)
+    """ERP vs VMS for the parcels packed yesterday and today: only those two days are fetched;
+    their rows in the month sheet and in ERP NO VMS are replaced, earlier days stay as they are."""
     yesterday = today - timedelta(days=1)
-    start = min(first, yesterday)                          # on the 1st, yesterday is last month
+    days = [yesterday, today]
     erp = Erp.from_env()
     erp.login()
-    parcels = erp_parcels(erp, start)
+    parcels = erp_parcels(erp, yesterday)
     if not parcels:
-        raise RuntimeError(f"ERP has no Myntra parcels packed since {start}")
+        raise RuntimeError(f"ERP has no Myntra parcels packed since {yesterday}")
 
     client = OmsGuruClient.from_env()
     client.login()
     lookback = num("SLA_LOOKBACK_DAYS", 10)
-    codes_of, new_pairs, errors = channel_map(client, start - timedelta(days=lookback), today, chans, book.awb_cache())
+    codes_of, new_pairs, errors = channel_map(client, yesterday - timedelta(days=lookback), today, chans, book.awb_cache())
     book.save_awb_cache(new_pairs)
 
     vms = VmsClient(env("VMS_USERNAME"), env("VMS_PASSWORD"))
     vms.login()
-    scanned = {a.upper() for a in vms.scanned_awbs(start - timedelta(days=3), today)}
+    scanned = {a.upper() for a in vms.scanned_awbs(yesterday - timedelta(days=3), today)}
 
     per_day, missing = compare(parcels, codes_of, scanned, codes)
-    zero = {c: [0, 0] for c in codes + [OTHER]}
-    recent = [{"date": d, "codes": per_day.get(d, zero)} for d in (yesterday, today)]
-    per_day = {d: v for d, v in per_day.items() if d >= first}
-    missing = [m for m in missing if m["date"] >= first]
+    every = codes + [OTHER]
+    per_day = {d: per_day.get(d, {c: [0, 0] for c in every}) for d in days}
+    for year, month in sorted({(d.year, d.month) for d in days}):
+        sheet = book.erp_month_days(year, month, every)
+        sheet.update({d: v for d, v in per_day.items() if (d.year, d.month) == (year, month)})
+        shown = codes + ([OTHER] if any(v[OTHER][0] for v in sheet.values()) else [])
+        upto = today if (year, month) == (today.year, today.month) else yesterday   # yesterday: last month's last day
+        book.write_erp_month(year, month, sheet, shown, upto=upto)
+    book.write_erp_no_vms(yesterday, today, missing)
     unknown = sum(d[OTHER][0] for d in per_day.values())
-    shown = codes + ([OTHER] if unknown else [])          # OTHER only when OMSGuru missed a parcel
-    book.write_erp_month(today.year, today.month, per_day, shown, upto=today)
-    book.write_erp_no_vms(first, today, missing)
     log.info("ERP vs VMS %s..%s: %d parcels, %d without VMS, %d channel unknown",
-             first, today, sum(d[c][0] for d in per_day.values() for c in d), len(missing), unknown)
-    total = {c: [sum(d[c][0] for d in per_day.values()), sum(d[c][1] for d in per_day.values())]
-             for c in codes + [OTHER]}
-    return {"from": first, "to": today, "codes": codes + [OTHER], "total": total,
-            "days": [{"date": d, "codes": v} for d, v in sorted(per_day.items())], "recent": recent,
+             yesterday, today, len(parcels), len(missing), unknown)
+    total = {c: [sum(d[c][0] for d in per_day.values()), sum(d[c][1] for d in per_day.values())] for c in every}
+    return {"from": yesterday, "to": today, "codes": every, "total": total,
+            "days": [{"date": d, "codes": v} for d, v in per_day.items()],
             "missing": missing, "unknown_channel": unknown, "label_errors": len(errors)}
