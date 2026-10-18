@@ -105,6 +105,55 @@ def summary_text(results: list[dict], sale, ret, notes: list[str]) -> str:
     return "\n".join(out)
 
 
+def yearly_text(results: list[dict], year: int, notes: list[str], heading: str = "") -> str:
+    """The year's table for Telegram (same layout as the monthly one)."""
+    lines = [f"{'Portal':<9}{'Sale':>6}{'Ret':>5}{'%':>5}"]
+    for r in results:
+        if r["portal"] in ("MYNTRA COMBINED", "ALL PORTAL"):
+            lines.append("-" * 25)
+        lines.append(f"{SHORT.get(r['portal'], r['portal'])[:9]:<9}{r['sold']:>6}{r['returned']:>5}{r['rate']:>5.1f}")
+    months = results[0].get("months", []) if results else []
+    span = (f"{datetime.strptime(months[0], '%m-%Y'):%b} - {datetime.strptime(months[-1], '%m-%Y'):%b %Y}"
+            if months else f"{year}")
+    out = [f"📅 <b>{heading or 'Yearly Return Analysis'} · {year}</b>", f"<i>{span} ({len(months)} months)</i>", "",
+           "<pre>" + telegram.esc("\n".join(lines)) + "</pre>", "",
+           f"📁 Drive: RETURN ANALYSIS / Output / {year}"]
+    if notes:
+        out += ["", "⚠️ <b>Notes</b>", *(f"• {telegram.esc(n)}" for n in notes)]
+    return "\n".join(out)
+
+
+def send_yearly(args, results: list[dict], year: int, notes: list[str], heading: str = "") -> None:
+    text = yearly_text(results, year, notes, heading)
+    all_portal = next((r["report"] for r in results if r["portal"] == "ALL PORTAL"), None)
+    if args.no_telegram:
+        print(text)
+        return
+    telegram.send(text)
+    if all_portal:
+        telegram.send_document(all_portal, f"<b>{telegram.esc(Path(all_portal).stem)}</b>")
+
+
+def run_backfill(args, root: DriveFolder, work: Path) -> int:
+    """One-time build of a year's report: every month of the year whose returns window is over is
+    fetched and built (its data kept for the yearly report), then the year is built."""
+    from . import yearly
+    year = int(args.backfill_year)
+    notes: list[str] = []
+    filled, results = yearly.backfill(root, year, work / "Supporting", work, date.today(), notes)
+    if not results:
+        raise RuntimeError(f"yearly report {year} could not be built: " + "; ".join(notes[:10]))
+    keep = output_dir("returns")
+    for r in results:
+        shutil.copy2(r["report"], keep)
+    notes.insert(0, "months built now: " + ", ".join(f"{m:%b}" for m in filled))
+    send_yearly(args, results, year, notes, "Yearly Return Analysis (first build)")
+    dashboard.publish("returns_year", {"year": year, "notes": notes,
+                                       "portals": [{k: r[k] for k in ("portal", "sold", "returned", "rate")}
+                                                   for r in results]})
+    return 0
+
+
 # ------------------------------------------------------------------ runs
 
 def run_request(args, sale, ret, parts) -> int:
@@ -140,9 +189,12 @@ def run_request(args, sale, ret, parts) -> int:
 def run(args) -> int:
     today = date.today()
     month = report_month(args.month, today)
-    sale, ret, parts = sources.windows(month, today)
-    log.info("Report month %s: sale %s..%s, returns %s..%s (%d returns job(s) per Myntra account)",
-             f"{month:%b %Y}", *sale, *ret, len(parts))
+    sale, ret, parts = sources.windows(month, today) if not args.backfill_year else (None, None, None)
+    if args.backfill_year:
+        log.info("Backfill of the yearly report %s", args.backfill_year)
+    else:
+        log.info("Report month %s: sale %s..%s, returns %s..%s (%d returns job(s) per Myntra account)",
+                 f"{month:%b %Y}", *sale, *ret, len(parts))
     if args.request:
         return run_request(args, sale, ret, parts)
 
@@ -152,6 +204,8 @@ def run(args) -> int:
     if not supporting or not supporting.download("MasterSheet.xlsx", work / "Supporting" / "MasterSheet.xlsx"):
         raise RuntimeError("MasterSheet.xlsx not found in RETURN ANALYSIS/Supporting on Drive")
     supporting.download("Cost Sheet.xlsx", work / "Supporting" / "Cost Sheet.xlsx")   # optional
+    if args.backfill_year:
+        return run_backfill(args, root, work)
 
     notes, alerts = [], []
     inputs = work / "Input"
@@ -197,6 +251,17 @@ def run(args) -> int:
             telegram.send(session_alert(alerts))
         if all_portal:
             telegram.send_document(all_portal, f"<b>{telegram.esc(Path(all_portal).stem)}</b>")
+    if not args.no_upload:
+        from . import yearly
+        try:
+            yearly.save_month_data(root, [r for r in results if r.get("df") is not None], work)
+            year_results = yearly.rebuild_year(root, month.year, work / "Supporting", work)
+            if year_results:
+                send_yearly(args, year_results, month.year, [])
+        except Exception as exc:  # noqa: BLE001 - the monthly report is already out
+            log.exception("Yearly report not updated")
+            msg = f"⚠️ <b>Yearly return analysis {month.year} not updated</b>\n\n<code>{telegram.esc(str(exc)[:300])}</code>"
+            print(msg) if args.no_telegram else telegram.send(msg)
     dashboard.publish("returns", {"month": tag, "sale": sale, "returns": ret, "notes": notes,
                                   "portals": [{k: r[k] for k in ("portal", "sold", "returned", "rate")}
                                               for r in results]})
@@ -210,6 +275,8 @@ def main(argv=None) -> int:
                    help="only ask the portals for the slow reports (morning of the 15th)")
     p.add_argument("--drive-input", action="store_true",
                    help="use the files in the Drive folder's Input/ instead of fetching them")
+    p.add_argument("--backfill-year", metavar="YYYY",
+                   help="one-time build of that year's yearly report: fetch and build every finished month")
     p.add_argument("--no-upload", action="store_true", help="keep the reports in output/returns only (test run)")
     p.add_argument("--no-telegram", action="store_true", help="print the summary instead of sending it")
     return run_bot("Return analysis", p, run, argv, key="returns")

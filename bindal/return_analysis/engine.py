@@ -1002,6 +1002,63 @@ def check(df, portal):
             print(f'WARNING: {portal} has {n} rows with empty {col}, e.g. {sample}')
 
 
+def write_combined(built, out_root, design_map, launch, tag=None):
+    """MYNTRA COMBINED (Myntra MAIN + DBCC + FMCC) and ALL PORTAL reports from (portal, df, stats)
+    parts; tag names the file (default: the latest month, MON-YY)."""
+    results = []
+    for name, parts in [('MYNTRA COMBINED', [b for b in built if b[0].startswith('MYNTRA')]), ('ALL PORTAL', built)]:
+        if len(parts) < 2:
+            continue
+        df = pd.concat([part for _, part, _ in parts], ignore_index=True)
+        # Same brand is spelt differently per portal (DressBerry / Dressberry, FASHFUN CLOTHING / FashFun):
+        # use the most common spelling
+        key = df['BRAND'].str.strip().str.lower().replace(BRAND_ALIASES)
+        df['BRAND'] = key.map(df.groupby(key)['BRAND'].agg(lambda s: s.mode()[0]))
+        month_tag = tag or pd.to_datetime(max(df['MONTH'].dropna()), format='%m-%Y').strftime('%b-%y').upper()
+        launch_map = launch_dates(launch, [p for p, _, _ in parts])
+        report = write_report(df, name, month_tag, out_root, design_map, launch_map)
+        sold = int(df['QTY'].sum())
+        returned = int(df.loc[df['ORDER STATUS'] == 'Return', 'QTY'].sum())
+        rate = returned / sold * 100 if sold else 0
+        print(f'{name} ({month_tag})  portals={", ".join(p for p, _, _ in parts)}')
+        print(f'    sale qty={sold:<6} return qty={returned:<6} return %={rate:.2f}')
+        print(f'    report: {report}')
+        results.append({'portal': name, 'month': month_tag, 'sold': sold, 'returned': returned, 'rate': rate,
+                        'report': report, 'template': None, 'stats': {}})
+    return results
+
+
+# Columns of a portal's monthly data kept for the yearly report: the template columns plus STATE
+DATA_COLUMNS = COLUMNS + ['STATE']
+
+
+def read_data(path):
+    """A monthly data CSV (DATA_COLUMNS) back as the frame the builders made."""
+    df = pd.read_csv(path, dtype=str, keep_default_na=False, na_values=[''])
+    df['QTY'] = pd.to_numeric(df['QTY']).astype(int)
+    for col in ['SALE PRICE', 'COST']:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    return df
+
+
+def build_period(frames, tag, supporting_dir, out_root):
+    """Reports over several months (e.g. a year) from the portals' monthly data:
+    frames = {portal: df}. One report per portal plus the combined ones, all named with tag."""
+    _, _, _, design_map, launch = load_master(supporting_dir)
+    built = [(portal, df, {}) for portal, df in frames.items()]
+    results = []
+    for portal, df, _ in built:
+        report = write_report(df, portal, tag, out_root, design_map, launch_dates(launch, portal))
+        sold = int(df['QTY'].sum())
+        returned = int(df.loc[df['ORDER STATUS'] == 'Return', 'QTY'].sum())
+        rate = returned / sold * 100 if sold else 0
+        print(f'{portal} ({tag})  months={sorted(df["MONTH"].dropna().unique())}')
+        print(f'    sale qty={sold:<6} return qty={returned:<6} return %={rate:.2f}')
+        results.append({'portal': portal, 'month': tag, 'sold': sold, 'returned': returned, 'rate': rate,
+                        'report': report, 'template': None, 'stats': {}})
+    return results + write_combined(built, out_root, design_map, launch, tag)
+
+
 def build_all(input_dir, supporting_dir, out_root):
     """Build every portal found in input_dir plus the combined reports. Returns one dict per report:
     portal, month, sold, returned, rate, report (path), template (path or None), stats;
@@ -1073,28 +1130,10 @@ def build_all(input_dir, supporting_dir, out_root):
         print(f'    report: {report}')
         results.append({'portal': portal, 'month': month_tag, 'sold': sold, 'returned': returned, 'rate': rate,
                         'report': report, 'template': os.path.join(out_root, 'Template', f'{portal} {month_tag} TEMPLATE.csv'),
-                        'stats': stats})
+                        'stats': stats, 'df': df})
 
     # Combined reports: same sheets plus Portal Wise
-    for name, parts in [('MYNTRA COMBINED', [b for b in built if b[0].startswith('MYNTRA')]), ('ALL PORTAL', built)]:
-        if len(parts) < 2:
-            continue
-        df = pd.concat([part for _, part, _ in parts], ignore_index=True)
-        # Same brand is spelt differently per portal (DressBerry / Dressberry, FASHFUN CLOTHING / FashFun):
-        # use the most common spelling
-        key = df['BRAND'].str.strip().str.lower().replace(BRAND_ALIASES)
-        df['BRAND'] = key.map(df.groupby(key)['BRAND'].agg(lambda s: s.mode()[0]))
-        month_tag = pd.to_datetime(max(df['MONTH'].dropna()), format='%m-%Y').strftime('%b-%y').upper()
-        launch_map = launch_dates(launch, [p for p, _, _ in parts])
-        report = write_report(df, name, month_tag, out_root, design_map, launch_map)
-        sold = int(df['QTY'].sum())
-        returned = int(df.loc[df['ORDER STATUS'] == 'Return', 'QTY'].sum())
-        rate = returned / sold * 100 if sold else 0
-        print(f'{name} ({month_tag})  portals={", ".join(p for p, _, _ in parts)}')
-        print(f'    sale qty={sold:<6} return qty={returned:<6} return %={rate:.2f}')
-        print(f'    report: {report}')
-        results.append({'portal': name, 'month': month_tag, 'sold': sold, 'returned': returned, 'rate': rate,
-                        'report': report, 'template': None, 'stats': {}})
+    results += write_combined(built, out_root, design_map, launch)
     print('\nDone.')
     return results, skipped
 

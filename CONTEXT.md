@@ -67,7 +67,17 @@ reused). MasterSheet comes from Drive `RETURN ANALYSIS/Supporting` (folder id
 `1FQMg6atQgB1v6fGW1aIWoaZp5yFoM9bx`); reports go to `Output/<MON-YY>/`, CSVs to `Template/`
 (replaced by name), Telegram gets the table and the ALL PORTAL workbook. A portal that cannot be
 fetched is left out and named; `--drive-input` uses the Drive `Input/` folder instead,
-`--no-upload` keeps everything in `output/returns`. `/returns [YYYY-MM]` runs it on demand. Where each input comes from (all found and checked 2026-10-18):
+`--no-upload` keeps everything in `output/returns`. `/returns [YYYY-MM]` runs it on demand.
+
+Yearly report (January to December in one workbook per portal + MYNTRA COMBINED + ALL PORTAL):
+each monthly run keeps every portal's built rows (template columns + STATE) in Drive
+`RETURN ANALYSIS/Yearly/<YYYY>/<PORTAL> <MON-YY>.csv` and rebuilds `Output/<YYYY>/<PORTAL> SALE
+RETURN ANALYSIS <YYYY>.xlsx` from all of them (`yearly.py`). The first build of a year is a
+one-time backfill (`--backfill-year 2026`, workflow input `backfill_year`): every month whose
+returns window is over is fetched and built (Myntra: one orders report per month and one returns
+report per calendar month, orders and returns side by side, each 15 minutes after the last of
+its kind; Ajio and Flipkart per month), a few hours. A backfilled month's Myntra return status is
+as of the backfill day (the orders report carries it), not as of the next month's 14th. Where each input comes from (all found and checked 2026-10-18):
 
 | Input | API |
 |---|---|

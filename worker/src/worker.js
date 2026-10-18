@@ -290,7 +290,7 @@ export default {
 
 // The bots' latest numbers for the dashboard, stored in KV under their key.
 const DASH_KEYS = new Set(["sale", "sale_today", "vms", "vms_erp", "ajio_tat", "ajio_spf",
-                           "returns", "run_sale", "run_vms", "run_ajio_tat", "run_ajio_spf", "run_returns"]);
+                           "returns", "returns_year", "run_sale", "run_vms", "run_ajio_tat", "run_ajio_spf", "run_returns"]);
 
 async function pushDashboard(request, env, key) {
   const token = env.DASHBOARD_TOKEN || "";

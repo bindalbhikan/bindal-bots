@@ -14,6 +14,9 @@ on:
       drive_input:
         description: "1 = use the files in the Drive folder's Input/ instead of fetching them"
         default: ""
+      backfill_year:
+        description: "YYYY = one-time build of that year's yearly report (fetches every finished month, a few hours)"
+        default: ""
       no_upload:
         description: "1 = test run: reports only as the run's artifact, Drive not changed"
         default: ""
@@ -28,7 +31,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 330   # a backfill asks Myntra for ~20 reports, 15 minutes apart
     env:
       TZ: Asia/Kolkata
       RUN_MODE: github-actions
@@ -49,6 +52,7 @@ jobs:
       IN_REQUEST: ${{ inputs.request }}
       IN_DRIVE_INPUT: ${{ inputs.drive_input }}
       IN_NO_UPLOAD: ${{ inputs.no_upload }}
+      IN_BACKFILL_YEAR: ${{ inputs.backfill_year }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -58,6 +62,7 @@ jobs:
           if [ -n "$IN_REQUEST" ]; then set -- "$@" --request; fi
           if [ -n "$IN_DRIVE_INPUT" ]; then set -- "$@" --drive-input; fi
           if [ -n "$IN_NO_UPLOAD" ]; then set -- "$@" --no-upload; fi
+          if [ -n "$IN_BACKFILL_YEAR" ]; then set -- "$@" --backfill-year "$IN_BACKFILL_YEAR"; fi
           python run.py returns "$@"
       - name: Upload run output
         if: always()
