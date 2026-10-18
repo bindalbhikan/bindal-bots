@@ -156,3 +156,8 @@ def test_session_from_devtools_request_headers():
             "origin\nhttps://partners.myntrainfo.com\n")
     cookies = {c["name"]: c["value"] for c in mp.parse_session(dump).cookies}
     assert cookies == {"_ga": "1", "erp.at": "A", "erp.rt": "R", "session": "S"}
+
+
+def test_interrupted_job_is_not_reused():
+    jobs = [_job(9, "2026-03-01", "2026-03-31", datetime(2026, 10, 1, 9), "INTERRUPTED")]
+    assert mp.exact_job(jobs, 4, date(2026, 3, 1), date(2026, 3, 31)) is None

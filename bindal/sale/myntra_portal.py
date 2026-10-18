@@ -45,7 +45,8 @@ HEADERS = {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest",
 # Akamai bot-manager cookies live for minutes or hours and are renewed by the server;
 # they say nothing about when the login runs out
 NOT_LOGIN = re.compile(r"^(_abck|ak_bmsc|bm_\w+|_ga\w*|_gid|_gcl\w*)$")
-FAILED = ("FAIL", "ERROR", "CANCEL", "REJECT")
+# job statuses that will never complete (INTERRUPTED seen on old jobs, Oct 2026)
+FAILED = ("FAIL", "ERROR", "CANCEL", "REJECT", "INTERRUPT", "ABORT", "EXPIRE", "TIMEOUT")
 
 
 class SessionExpired(RuntimeError):
@@ -286,10 +287,10 @@ class MyntraPortal:
             if status == "COMPLETED" and job.get("successFile"):
                 return job
             if any(f in status for f in FAILED):
-                raise RuntimeError(f"SJIT report job {job.get('id')} {status}: {job.get('statusMessage')}")
+                raise RuntimeError(f"Myntra report job {job.get('id')} {status}: {job.get('statusMessage')}")
             if time.time() > deadline:
-                raise RuntimeError(f"SJIT report job {job.get('id')} not ready in time ({status})")
-            log.info("SJIT report job %s: %s, waiting", job.get("id"), status or "?")
+                raise RuntimeError(f"Myntra report job {job.get('id')} not ready in time ({status})")
+            log.info("Myntra report job %s: %s, waiting", job.get("id"), status or "?")
             time.sleep(poll_seconds)
             job = next((j for j in self.jobs() if j.get("id") == job.get("id")), job)
 
