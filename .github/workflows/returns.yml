@@ -1,7 +1,7 @@
 name: Return analysis
 
 on:
-  # Started by the Telegram bot's Cloudflare cron (worker/src/worker.js): 9:30 AM IST on the 15th
+  # Started by the Telegram bot's Cloudflare cron (worker/src/worker.js): 9:00 AM IST on the 15th
   # with request=1 (ask the portals for the slow reports), 2:00 PM IST on the 15th for the report.
   workflow_dispatch:
     inputs:

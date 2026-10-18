@@ -5,7 +5,7 @@ its 1st to the 14th of this month. Inputs are fetched from the portals (sources.
 are built with the rules of the hand-run tool (engine.py) and written to the Drive folder
 RETURN ANALYSIS: Output/<MON-YY>/ (reports) and Template/ (flat CSVs). A portal whose input
 cannot be fetched is left out and named on Telegram; --drive-input uses the files in the Drive
-folder's Input/ instead (dropped there by hand). --request (9:30 AM on the 15th) only asks the
+folder's Input/ instead (dropped there by hand). --request (9:00 AM on the 15th) only asks the
 portals for the slow reports, so the 2 PM run finds them ready.
 """
 from __future__ import annotations
@@ -108,7 +108,7 @@ def summary_text(results: list[dict], sale, ret, notes: list[str]) -> str:
 # ------------------------------------------------------------------ runs
 
 def run_request(args, sale, ret, parts) -> int:
-    """9:30 AM on the 15th: ask Myntra (orders + first returns report per account) and Flipkart
+    """9:00 AM on the 15th: ask Myntra (orders + first returns report per account) and Flipkart
     for the reports, so the 2 PM run only collects them. Telegram hears only about trouble."""
     from ..sale import myntra_portal as mp
     from ..sale.pipeline import session_alert

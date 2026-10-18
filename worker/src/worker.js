@@ -108,11 +108,12 @@ const SCHEDULE = [
   { ist: "3:30 PM daily", cron: "0 10 * * *", cmd: "sale" },
   { ist: "5:30 PM daily", cron: "0 12 * * *", cmd: "vms" },
   { ist: "5:30 PM daily", cron: "0 12 * * *", cmd: "ajiotat" },
-  // return analysis on the 15th: the slow reports asked for in the morning, the report at 2 PM.
-  // Only minute + hour are matched (see scheduled()), so these two times must stay unique.
-  { ist: "9:30 AM on the 15th", cron: "0 4 15 * *", cmd: "returns", label: "Return analysis report request",
+  // return analysis on the 15th (`day`: only on that IST day of the month; the free plan allows 5
+  // cron triggers, so these ride on daily ones): the reports asked for at 9 AM, as they queue on
+  // the portals for a while, and the report built at 2 PM.
+  { ist: "9:00 AM on the 15th", cron: "30 3 * * *", day: 15, cmd: "returns", label: "Return analysis report request",
     inputs: { request: "1" } },
-  { ist: "2:00 PM on the 15th", cron: "30 8 15 * *", cmd: "returns" },
+  { ist: "2:00 PM on the 15th", cron: "30 8 * * *", day: 15, cmd: "returns" },
 ];
 
 // The button menu. Every screen edits the same message. Button data:
@@ -264,7 +265,8 @@ export default {
     // Matched on minute + hour only: Cloudflare may hand back the day-of-week
     // field in another form ("WED,SAT" vs "4,7"), and the times are unique.
     const at = (c) => String(c).trim().split(/\s+/).slice(0, 2).join(" ");
-    const due = SCHEDULE.filter((s) => at(s.cron) === at(event.cron));
+    const istDay = new Date(event.scheduledTime + 5.5 * 3600 * 1000).getUTCDate();
+    const due = SCHEDULE.filter((s) => at(s.cron) === at(event.cron) && (!s.day || s.day === istDay));
     ctx.waitUntil(
       Promise.all(
         due.map(async (s) => {

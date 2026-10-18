@@ -59,7 +59,7 @@ waits out one refusal (16 min); the exact refusal text is not known yet.
 Monthly sale vs return report for Myntra MAIN / DBCC / FMCC, Ajio and Flipkart. The rules are
 those of the hand-run tool in `BINDAL EXPORTS\RETURN ANALYSIS` (`main.py` and its CONTEXT.md),
 copied unchanged into `bindal/return_analysis/engine.py` (same SEP-26 output, checked file by
-file). Worker cron on the 15th: 9:30 AM `--request` (asks Myntra for the orders report and the
+file). Worker cron on the 15th: 9:00 AM `--request` (asks Myntra for the orders report and the
 first returns report per account, and Flipkart for its two reports), 2:00 PM the report: sale =
 last month 1st to last day, returns = last month 1st to this month's 14th (two Myntra returns
 jobs per account, the second after the 15-minute cooldown; existing jobs for the same dates are
