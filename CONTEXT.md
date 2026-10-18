@@ -37,6 +37,23 @@ Since Oct 2026 the month sheets have a COCOBLU block right after AZ/FX/FBA (OMSG
 (Snapdeal orders are not reported). Older month sheets keep their old layout; a run that
 writes into one puts Cocoblu back inside AZ/FX/FBA. New months copy the latest sheet.
 
+### AJIO TAT master
+
+One master file, `AJIO_TAT_MASTER.xlsx`, kept by name in the Drive folder
+`BINDAL EXPORTS/AJIO/Ajio Daily Order Tat Check Working` (`TAT_DRIVE_FOLDER_ID`; wins over the old
+`TAT_DRIVE_FILE_ID`, whose file was trashed on 2026-10-18 and now only seeds a missing master).
+Every run updates each order's status, and the columns `Label Printed` / `ERP Label Time` /
+`ERP Label By` from the ERP packing report (report 62, portal AJIO: its "Order ID" is the AWB);
+the first print counts. The master holds orders from 2026-08-01.
+
+### Drive: new files
+
+A Google service account has no Drive storage: it can update files you made, never create one
+("Service Accounts do not have storage quota"); folders it can create. New files (monthly and
+yearly return analysis reports, yearly data CSVs, a missing TAT master) go through the Drive
+relay `scripts/drive_relay.gs`, an Apps Script web app that runs as you (`DRIVE_RELAY_URL`,
+`DRIVE_RELAY_TOKEN`); existing files are still updated directly by the service account.
+
 ### Myntra partner portal reports
 
 Three seller accounts, each its own login: MAIN 19170, DBCC 32207, FMCC 35426. All use the same

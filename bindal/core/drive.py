@@ -12,6 +12,7 @@ someone changed it on Drive in the meantime.
 from __future__ import annotations
 
 import json
+import os
 import logging
 from pathlib import Path
 
@@ -146,8 +147,12 @@ class DriveFolder:
                 for p in [self.download(name, dest / name)] if p]
 
     def put(self, src: Path, mime: str = "application/octet-stream") -> str:
-        """Upload src under its own name: the file of that name is replaced (same id), else created."""
+        """Upload src under its own name: the file of that name is replaced (same id), else created.
+        A service account cannot create files in a personal Drive (no storage quota), so a new
+        file goes through the Drive relay (scripts/drive_relay.gs, DRIVE_RELAY_URL + _TOKEN)."""
         found = self.children().get(src.name)
+        if not found and os.getenv("DRIVE_RELAY_URL", "").strip():
+            return self._relay_create(src, mime)
         if found:
             r = self.http.patch(f"{UPLOAD}/{found['id']}", data=src.read_bytes(), timeout=600,
                                 params={"uploadType": "media", "supportsAllDrives": "true", "fields": "id"},
@@ -164,3 +169,19 @@ class DriveFolder:
         file_id = self._check(r, f"upload of {src.name}").json()["id"]
         log.info("Uploaded %s to Drive", src.name)
         return file_id
+
+    def _relay_create(self, src: Path, mime: str) -> str:
+        import base64
+        import requests
+        body = {"token": os.getenv("DRIVE_RELAY_TOKEN", "").strip(), "folderId": self.folder_id, "name": src.name,
+                "mimeType": mime, "data": base64.b64encode(src.read_bytes()).decode()}
+        r = requests.post(os.getenv("DRIVE_RELAY_URL", "").strip(), data=json.dumps(body), timeout=600,
+                          headers={"Content-Type": "application/json"})
+        try:
+            out = r.json()
+        except ValueError:
+            raise DriveError(f"Drive relay answered HTTP {r.status_code}, not JSON: {r.text[:200]}") from None
+        if not out.get("ok"):
+            raise DriveError(f"Drive relay could not save {src.name}: {out.get('error')}")
+        log.info("Created %s in Drive (through the relay)", src.name)
+        return out["id"]

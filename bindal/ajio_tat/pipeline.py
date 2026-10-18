@@ -21,7 +21,37 @@ from .tat_engine import (OPEN_PICKUP, apply_status, apply_tracking,
                          prepare_tracking, summarize, write_excel)
 
 KEEP_BACKUPS = 30
+MASTER_NAME = "AJIO_TAT_MASTER.xlsx"
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 log = logging.getLogger("bindal.ajio_tat")
+
+
+def erp_labels(df, since: datetime, errors: list[str]):
+    """ERP Label Time / ERP Label By from the ERP packing report (Shipping Label Print), portal
+    AJIO, whose "Order ID" is the AWB. Read from the OMSGuru window's start (a week at least).
+    An ERP failure is noted and the old values stay."""
+    if not env("ERP_USERNAME"):
+        log.info("ERP not configured: label prints not checked")
+        return df
+    from ..core.erp import Erp
+    from .tat_engine import apply_erp_labels
+    first = min(since.date(), (datetime.now() - timedelta(days=7)).date())
+    try:
+        erp = Erp.from_env()
+        erp.login()
+        labels: dict[str, tuple] = {}
+        for line in erp.packed("AJIO", first):
+            awb = str(line.get("Order ID") or "").strip().upper()
+            when = line.get("Created On") or line.get("Voucher Date")
+            if awb and when is not None and (awb not in labels or str(when) < str(labels[awb][0])):
+                labels[awb] = (when, line.get("Created By") or "")
+    except Exception as exc:  # noqa: BLE001 - the TAT report still goes out
+        log.warning("ERP label prints not read: %s", exc)
+        errors.append(f"ERP label prints not read: {exc}")
+        return df
+    df, n = apply_erp_labels(df, labels)
+    log.info("ERP: %d AJIO label prints since %s, %d new in the master", len(labels), first, n)
+    return df
 
 
 def master_xlsx() -> Path:
@@ -274,12 +304,20 @@ def run(args) -> int:
     if sheet_id and not args.no_sheet:
         from .sheets import MasterSheet
         sheet = MasterSheet(sheet_id)
-    drive = None
-    drive_id = env("TAT_DRIVE_FILE_ID")
-    if drive_id and not args.no_drive:
+    drive = folder = None
+    if not args.no_drive and env("TAT_DRIVE_FOLDER_ID"):
+        # the master lives in a Drive folder (AJIO/Ajio Daily Order Tat Check Working) by name:
+        # updated in place when it is there, created when it is not (e.g. moved or deleted)
+        from ..core.drive import DriveFile, DriveFolder
+        folder = DriveFolder(env("TAT_DRIVE_FOLDER_ID"))
+        found = folder.children().get(MASTER_NAME)
+        drive = DriveFile(found["id"]) if found else None
+        if not found:
+            log.info("No %s in the Drive folder yet: it will be created", MASTER_NAME)
+    elif not args.no_drive and env("TAT_DRIVE_FILE_ID"):
         from ..core.drive import DriveFile
-        drive = DriveFile(drive_id)
-    drive_copy = out / "drive" / "AJIO_TAT_MASTER.xlsx"
+        drive = DriveFile(env("TAT_DRIVE_FILE_ID"))
+    drive_copy = out / "drive" / MASTER_NAME
 
     # 1) master state
     if args.seed_xlsx:
@@ -291,6 +329,14 @@ def run(args) -> int:
             old = pd.concat([old, cur]).drop_duplicates("Invoice No", keep="last")
     elif drive:
         old, old_as_of = read_master_xlsx(drive.download(drive_copy, need_edit=True))
+    elif folder and env("TAT_DRIVE_FILE_ID"):
+        # no master in the folder yet: start from the old master file (readable even in the trash)
+        from ..core.drive import DriveFile
+        old_file = DriveFile(env("TAT_DRIVE_FILE_ID"))
+        old, old_as_of = read_master_xlsx(old_file.download(out / "seed" / MASTER_NAME))
+        log.info("Master seeded from the old file %s", old_file.name)
+    elif folder:
+        old, old_as_of = normalize_master(pd.DataFrame()), None
     elif sheet:
         old, old_as_of = sheet.read_master()
     else:
@@ -318,6 +364,7 @@ def run(args) -> int:
         as_of = max(as_of, ev["ts"].max())
     if old_as_of is not None and pd.notna(old_as_of):
         as_of = max(as_of, old_as_of)
+    merged = erp_labels(merged, start, errors)
     df = apply_status(merged, as_of)
     s = summarize(df)
     note = (f"OMSGuru {start:%d-%b} to {end - timedelta(days=1):%d-%b} ({len(o)} lines read) "
@@ -331,6 +378,9 @@ def run(args) -> int:
             drive.download(drive_copy, need_edit=True)
         save_master_xlsx(df, drive_copy, note, as_of)
         drive.upload(drive_copy)
+    elif folder:
+        save_master_xlsx(df, drive_copy, note, as_of)
+        folder.put(drive_copy, XLSX)
     if args.xlsx or not (sheet or drive):
         save_master_xlsx(df, master_xlsx(), note, as_of)
     if sheet:

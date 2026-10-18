@@ -42,6 +42,9 @@ jobs:
       FLIPKART_EMAIL: ${{ secrets.FLIPKART_EMAIL }}
       FLIPKART_PASSWORD: ${{ secrets.FLIPKART_PASSWORD }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      # new Drive files are created through the Apps Script relay (service accounts have no Drive storage)
+      DRIVE_RELAY_URL: ${{ secrets.DRIVE_RELAY_URL }}
+      DRIVE_RELAY_TOKEN: ${{ secrets.DRIVE_RELAY_TOKEN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
       # the Myntra sessions are read from the worker with the dashboard token

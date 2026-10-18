@@ -58,13 +58,13 @@ NOT_PICKED_COURIER_STATUSES = {"UNKNOWN", "NOT_FOUND", "PENDING", "OUT_FOR_PICKU
 REPORT_COLS = ["Invoice No", "Order ID", "AWB", "Courier", "Order Time", "Dispatch Deadline",
                "Processed Time", "RTS Time", "Pickup Attempt Time", "Pickup Time",
                "Process Status", "Pickup Status", "TAT Result", "OMS Item Status",
-               "Courier Status", "Last Updated"]
+               "Courier Status", "Label Printed", "ERP Label Time", "ERP Label By", "Last Updated"]
 # Raw fields kept in the master (_data sheet) so statuses can be recomputed every run.
 DATA_COLS = ["Invoice No", "Order ID", "AWB", "Courier", "Order Time", "Dispatch Deadline",
              "Processed Time", "RTS Time", "RTS Exact", "Pickup Attempt Time", "Pickup Time",
-             "OMS Item Status", "Courier Status", "Last Updated"]
+             "OMS Item Status", "Courier Status", "ERP Label Time", "ERP Label By", "Last Updated"]
 TIME_COLS = ["Order Time", "Dispatch Deadline", "Processed Time", "RTS Time",
-             "Pickup Attempt Time", "Pickup Time", "Last Updated"]
+             "Pickup Attempt Time", "Pickup Time", "ERP Label Time", "Last Updated"]
 STATUS_COLS = ["Process Status", "Pickup Status", "TAT Result"]
 
 
@@ -206,6 +206,7 @@ def merge_master(old, new):
     """New data wins; a blank in the new data never erases an old value.
     Orders missing from today's input stay in the master untouched.
     A PENDING-<order id> row is dropped once that order shows up with an invoice."""
+    old, new = old.reindex(columns=DATA_COLS), new.reindex(columns=DATA_COLS)
     old = old.drop_duplicates("Invoice No", keep="last").set_index("Invoice No")
     new = new.drop_duplicates("Invoice No", keep="last").set_index("Invoice No")
     both = new.index.intersection(old.index)
@@ -308,7 +309,20 @@ def apply_status(df, as_of):
     df["Process Status"] = [proc_flag(r, d) for (_, r), d in zip(rows, dl)]
     df["Pickup Status"] = [pickup_flag(r, d) for (_, r), d in zip(rows, dl)]
     df["TAT Result"] = [overall(p, k, d) for p, k, d in zip(df["Process Status"], df["Pickup Status"], dl)]
+    df["Label Printed"] = df.reindex(columns=["ERP Label Time"])["ERP Label Time"].notna().map({True: "YES", False: "NO"})
     return df.sort_values("Order Time").reset_index(drop=True)
+
+
+def apply_erp_labels(df, labels):
+    """ERP shipping-label prints into the master: labels = {AWB: (print time, printed by)}.
+    A label time already in the master is kept (the first print counts)."""
+    df = df.copy()
+    awb = df["AWB"].astype(str).str.strip().str.upper()
+    hit = awb.map(lambda a: labels.get(a))
+    todo = df["ERP Label Time"].isna() & hit.notna()
+    df.loc[todo, "ERP Label Time"] = pd.to_datetime([h[0] for h in hit[todo]], errors="coerce")
+    df.loc[todo, "ERP Label By"] = [h[1] for h in hit[todo]]
+    return df, int(todo.sum())
 
 
 # ----------------------------------------------------------------- summaries
@@ -373,7 +387,7 @@ def write_excel(data, path, source_note, as_of):
              "Late": red, "Pending Pickup": red, "Not Processed": red, "NOT CORRECT": red,
              "Picked (Time N/A)": amber, "CHECK": amber, "Pending": amber, "PENDING": amber,
              NEXT_DAY_PICKUP: amber,
-             "Cancelled": grey, "CANCELLED": grey}
+             "Cancelled": grey, "CANCELLED": grey, "YES": green, "NO": red}
     widths = {"Invoice No": 11, "Order ID": 13, "AWB": 18, "Courier": 12, "Process Status": 14,
               "Pickup Status": 13, "TAT Result": 14}
     time_fmt = "DD-MMM-YY hh:mm AM/PM"
@@ -388,7 +402,8 @@ def write_excel(data, path, source_note, as_of):
         for c, i in col.items():
             ws.column_dimensions[get_column_letter(i)].width = widths.get(c, 20)
         for r, is_exact in zip(range(2, ws.max_row + 1), rts_exact):
-            for c in ("Order Time", "Dispatch Deadline", "Processed Time", "RTS Time", "Pickup Attempt Time", "Pickup Time"):
+            for c in ("Order Time", "Dispatch Deadline", "Processed Time", "RTS Time", "Pickup Attempt Time", "Pickup Time",
+                      "ERP Label Time"):
                 ws.cell(r, col[c]).number_format = time_fmt
             if not is_exact:  # Dispatch Log gives date only
                 ws.cell(r, col["RTS Time"]).number_format = "DD-MMM-YY"
@@ -399,7 +414,7 @@ def write_excel(data, path, source_note, as_of):
         ws.row_dimensions[1].height = 30
         ws.freeze_panes = "B2"
         ws.auto_filter.ref = ws.dimensions
-        for c in STATUS_COLS:
+        for c in STATUS_COLS + ["Label Printed"]:
             rng = f"{L[c]}2:{L[c]}{max(ws.max_row, 2)}"
             for txt, fill in fills.items():
                 ws.conditional_formatting.add(rng, CellIsRule(operator="equal", formula=[f'"{txt}"'], fill=fill))

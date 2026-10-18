@@ -28,8 +28,17 @@ jobs:
       OMSGURU_PASSWORD: ${{ secrets.OMSGURU_PASSWORD }}
       OMSGURU_OTP: ${{ secrets.OMSGURU_OTP }}
       TAT_DRIVE_FILE_ID: ${{ secrets.TAT_DRIVE_FILE_ID }}
+      # the master by name in the Drive folder AJIO/Ajio Daily Order Tat Check Working (wins over the file id)
+      TAT_DRIVE_FOLDER_ID: ${{ secrets.TAT_DRIVE_FOLDER_ID }}
+      # ERP packing report: was the AJIO shipping label printed
+      ERP_USERNAME: ${{ secrets.ERP_USERNAME }}
+      ERP_PASSWORD: ${{ secrets.ERP_PASSWORD }}
+      ERP_USER_TOKEN: ${{ secrets.ERP_USER_TOKEN }}
       TAT_GOOGLE_SHEET_ID: ${{ secrets.TAT_GOOGLE_SHEET_ID }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      # new Drive files are created through the Apps Script relay (service accounts have no Drive storage)
+      DRIVE_RELAY_URL: ${{ secrets.DRIVE_RELAY_URL }}
+      DRIVE_RELAY_TOKEN: ${{ secrets.DRIVE_RELAY_TOKEN }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
       DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}

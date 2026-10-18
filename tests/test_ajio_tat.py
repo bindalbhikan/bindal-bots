@@ -37,3 +37,15 @@ def test_summary_layout_follows_the_rows():
 def test_summary_rows_without_tracking_time():
     df = apply_status(order("IN_TRANSIT"), pd.Timestamp("2026-10-11 12:00"))
     assert "not known" in summary_rows(summarize(df), pd.NaT, "note")[2][0]
+
+
+def test_erp_labels_fill_only_missing_times():
+    import pandas as pd
+    from bindal.ajio_tat.tat_engine import apply_erp_labels, normalize_master
+    m = normalize_master(pd.DataFrame({"Invoice No": ["I1", "I2", "I3"], "Order ID": ["1", "2", "3"],
+                                       "AWB": ["a1", "A2", "A3"], "ERP Label Time": [None, None, "2026-10-01 09:00"],
+                                       "ERP Label By": [None, None, "OLD"]}))
+    out, n = apply_erp_labels(m, {"A1": ("2026-10-16 10:00:37", "RAHUL"), "A3": ("2026-10-17 10:00", "NEW")})
+    assert n == 1
+    assert out.loc[0, "ERP Label By"] == "RAHUL" and str(out.loc[0, "ERP Label Time"]).startswith("2026-10-16 10:00")
+    assert pd.isna(out.loc[1, "ERP Label Time"]) and out.loc[2, "ERP Label By"] == "OLD"
