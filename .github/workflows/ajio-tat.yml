@@ -18,7 +18,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180   # a rebuild from far back (days=80) reads months of orders
     env:
       TZ: Asia/Kolkata
       RUN_MODE: github-actions
