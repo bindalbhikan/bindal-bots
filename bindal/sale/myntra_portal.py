@@ -31,6 +31,8 @@ log = logging.getLogger(__name__)
 
 API = "https://partnersapi.myntrainfo.com/api/partners"
 PORTAL = "https://partners.myntrainfo.com"
+# The three Myntra seller accounts, each with its own portal login (partner id)
+ACCOUNTS = {"MAIN": 19170, "DBCC": 32207, "FMCC": 35426}
 REPORT_ID = 4                       # Seller_Orders_Report
 QUERY = {"storeId": 2297, "partnerType": "PPMP"}  # store MYNTRA; the PPMP report also holds SJIT / FBM lines
 HEADERS = {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest",
@@ -98,14 +100,14 @@ def parse_session(text: str) -> Session:
     return Session(cookies)
 
 
-def from_worker(env) -> str:
-    """The session last saved on the Telegram worker (by scripts/myntra_session.py or a run)."""
+def from_worker(env, account: str = "MAIN") -> str:
+    """The account's session last saved on the Telegram worker (by scripts/myntra_session.py or a run)."""
     url, token = env("DASHBOARD_URL"), env("DASHBOARD_TOKEN")
     if not url or not token:
         return ""
     import requests
     try:
-        r = requests.post(f"{url.rstrip('/')}/api/myntra-session/read", timeout=30,
+        r = requests.post(f"{url.rstrip('/')}/api/myntra-session/read", timeout=30, params={"account": account.lower()},
                           headers={"Authorization": f"Bearer {token}"})
     except requests.RequestException as exc:
         log.warning("Myntra session not read from the worker: %s", exc)
@@ -116,8 +118,8 @@ def from_worker(env) -> str:
     return r.text
 
 
-def save_to_worker(env, cookies: list[dict]) -> bool:
-    """Store the renewed cookies on the worker after a run, quietly (no Telegram message)."""
+def save_to_worker(env, cookies: list[dict], account: str = "MAIN") -> bool:
+    """Store the account's renewed cookies on the worker after a run, quietly (no Telegram message)."""
     url, token = env("DASHBOARD_URL"), env("DASHBOARD_TOKEN")
     if not url or not token or not cookies:
         return False
@@ -125,6 +127,7 @@ def save_to_worker(env, cookies: list[dict]) -> bool:
     body = json.dumps({"savedAt": datetime.now().isoformat(timespec="seconds"), "source": "bot", "cookies": cookies})
     try:
         r = requests.post(f"{url.rstrip('/')}/api/myntra-session", data=body, timeout=30,
+                          params={"account": account.lower()},
                           headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"})
     except requests.RequestException as exc:
         log.warning("Renewed Myntra session not saved: %s", exc)
@@ -134,10 +137,13 @@ def save_to_worker(env, cookies: list[dict]) -> bool:
     return r.ok
 
 
-def session_text(env, default_file: Path) -> str:
-    """The session saved on the worker, else MYNTRA_SESSION_JSON, else the content of
-    MYNTRA_SESSION_FILE (default_file when unset)."""
-    text = from_worker(env) or env("MYNTRA_SESSION_JSON")
+def session_text(env, default_file: Path, account: str = "MAIN") -> str:
+    """The account's session saved on the worker; for MAIN also MYNTRA_SESSION_JSON, else the
+    content of MYNTRA_SESSION_FILE (default_file when unset)."""
+    text = from_worker(env, account)
+    if account != "MAIN":
+        return text
+    text = text or env("MYNTRA_SESSION_JSON")
     if not text:
         path = Path(env("MYNTRA_SESSION_FILE") or default_file)
         text = path.read_text(encoding="utf-8") if path.is_file() else ""
@@ -225,6 +231,15 @@ class MyntraPortal:
             out[c.name] = {"name": c.name, "value": c.value, "domain": c.domain, "path": c.path or "/",
                            "expires": c.expires or -1, "httpOnly": not NOT_LOGIN.match(c.name)}
         return list(out.values())
+
+    def partner_id(self) -> int | None:
+        """The seller account this login is for (the portal's boot data names its partner id)."""
+        r = self.http.get(f"{API.rsplit('/', 1)[0]}/boot/partners", timeout=self.timeout,
+                          headers={**HEADERS, "x-myntra-knuth": "yes"})
+        if r.status_code != 200:
+            return None
+        m = re.search(r'"sellerId":\s*"?(\d+)', r.text) or re.search(r'"partnerId":\s*"?(\d+)', r.text)
+        return int(m.group(1)) if m else None
 
     def check(self) -> None:
         """Raises SessionExpired when the saved session no longer works."""

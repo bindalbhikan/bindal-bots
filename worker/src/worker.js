@@ -279,11 +279,12 @@ async function pushDashboard(request, env, key) {
   return new Response("stored");
 }
 
-// Myntra partner portal login cookies for the sale bot's SJIT report. Saved by
-// scripts/myntra_session.py when someone pastes a new login (announced on Telegram) and by every
-// sale run with the cookies the portal renewed (quiet). Same DASHBOARD_TOKEN; kept in KV under a
-// key the dashboard never reads.
-const MYNTRA_KEY = "myntra_session";
+// Myntra partner portal login cookies, one per seller account (?account=main|dbcc|fmcc; main =
+// the SJIT report's account). Saved by scripts/myntra_session.py when someone pastes a new login
+// (announced on Telegram) and by the bot's runs with the cookies the portal renewed (quiet).
+// Same DASHBOARD_TOKEN; kept in KV under keys the dashboard never reads.
+const MYNTRA_ACCOUNTS = { main: "myntra_session", dbcc: "myntra_session_dbcc", fmcc: "myntra_session_fmcc" };
+const myntraAccount = (request) => new URL(request.url).searchParams.get("account") || "main";
 
 function authorised(request, env) {
   const token = env.DASHBOARD_TOKEN || "";
@@ -292,6 +293,9 @@ function authorised(request, env) {
 
 async function saveMyntraSession(request, env) {
   if (!authorised(request, env)) return new Response("forbidden", { status: 403 });
+  const account = myntraAccount(request);
+  const key = MYNTRA_ACCOUNTS[account];
+  if (!key) return new Response("unknown account", { status: 404 });
   const body = await request.text();
   if (body.length > 100_000) return new Response("too large", { status: 413 });
   let data;
@@ -301,12 +305,12 @@ async function saveMyntraSession(request, env) {
     return new Response("not JSON", { status: 400 });
   }
   if (!Array.isArray(data.cookies) || !data.cookies.length) return new Response("no cookies", { status: 400 });
-  await env.DASH.put(MYNTRA_KEY, body);
+  await env.DASH.put(key, body);
   const chat = String(env.ALLOWED_CHAT_IDS || "").split(",")[0].trim();
   if (chat && data.source !== "bot") {   // the bot saving renewed cookies after a run stays quiet
     const ends = data.expiresAt ? new Date(data.expiresAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata",
       day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "not given";
-    await sendMessage(env, chat, `🔐 <b>Myntra session saved</b>\n<i>new portal login for the SJIT report</i>\n\n` +
+    await sendMessage(env, chat, `🔐 <b>Myntra ${account.toUpperCase()} session saved</b>\n<i>new partner portal login</i>\n\n` +
       `Cookies: ${data.cookies.length}\nLogin expires: ${esc(ends)}`);
   }
   return new Response("stored");
@@ -314,7 +318,9 @@ async function saveMyntraSession(request, env) {
 
 async function readMyntraSession(request, env) {
   if (!authorised(request, env)) return new Response("forbidden", { status: 403 });
-  const body = await env.DASH.get(MYNTRA_KEY);
+  const key = MYNTRA_ACCOUNTS[myntraAccount(request)];
+  if (!key) return new Response("unknown account", { status: 404 });
+  const body = await env.DASH.get(key);
   return body ? new Response(body, { headers: { "Content-Type": "application/json" } }) : new Response("none", { status: 404 });
 }
 

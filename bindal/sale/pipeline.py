@@ -141,6 +141,7 @@ def run_sjit_request(args) -> int:
         log.info("SJIT report %s for %s..%s", f"job {job.get('id')} requested" if job else "already on the portal",
                  days[0], days[-1])
         mp.save_to_worker(env, portal.cookies())
+    keep_other_accounts_alive(alerts)
     if alerts:
         print(session_alert(alerts)) if args.no_telegram else telegram.send(session_alert(alerts))
     return 0
@@ -151,10 +152,29 @@ def session_alert(alerts: list[str]) -> str:
         "🔐 <b>Myntra partner portal session</b>",
         *(f"• {telegram.esc(a)}" for a in alerts),
         "",
-        "Renew it: log in on the Myntra partner portal, copy the <code>cookie:</code> request header "
-        "(DevTools > Network > a partnersapi request) into <code>myntra_cookie.txt</code>, then run "
-        "<code>python scripts/myntra_session.py</code>.",
+        "Renew it: log in on the Myntra partner portal with that account, copy the <code>cookie:</code> "
+        "request header (DevTools > Network > a partnersapi request), then run "
+        "<code>python scripts/myntra_session.py ACCOUNT</code> (MAIN / DBCC / FMCC).",
     ])
+
+
+def keep_other_accounts_alive(alerts: list[str]) -> None:
+    """Use the saved DBCC / FMCC sessions once (only the monthly return analysis needs them) and
+    save the cookies the portal renews: a session left unused runs out within a day."""
+    from . import myntra_portal as mp
+    for account in (a for a in mp.ACCOUNTS if a != "MAIN"):
+        text = mp.from_worker(env, account)
+        if not text:
+            continue
+        try:
+            portal = mp.MyntraPortal(mp.parse_session(text))
+            portal.check()
+            mp.save_to_worker(env, portal.cookies(), account)
+            log.info("Myntra %s session renewed", account)
+        except mp.SessionExpired as exc:
+            alerts.append(f"Myntra {account} session expired ({exc})")
+        except Exception as exc:  # noqa: BLE001 - never stops the sale report
+            log.warning("Myntra %s session not checked: %s", account, exc)
 
 
 # ------------------------------------------------------------------ telegram
@@ -322,6 +342,7 @@ def run(args) -> int:
     except Exception as exc:
         sg, sc, covered = Counter(), Counter(), set()
         log.warning("SJIT report not available: %s", exc)
+    keep_other_accounts_alive(alerts)
     missing = [d for d in days if d not in covered]
     for d in days:
         if d in covered:

@@ -1,6 +1,7 @@
 # secrets
 .env
 myntra_session.json
+myntra_session_*.json
 myntra_cookie.txt
 netcap-*.json
 service_account.json

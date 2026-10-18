@@ -84,13 +84,16 @@ Secrets never go in git: `.env`, `service_account.json` and all workbooks are ig
   per-run caps; any failed source turns the run into a dry run; a failed "does this return
   already have a ticket?" check stops that ticket instead of raising a duplicate.
 - Myntra SJIT: the partner portal login has a reCAPTCHA, so the bot never logs in. It reuses a
-  login made by hand in Chrome. To give it a new one: logged in on the portal, open DevTools (F12)
-  > Network > any `partnersapi.myntrainfo.com` request > Request Headers, copy the whole
-  `cookie:` value into `myntra_cookie.txt` (git-ignored), then run
-  `python scripts/myntra_session.py`. It checks the cookies against the portal and saves them to
-  the Telegram worker (the copy the bot reads) and to the GitHub secret `MYNTRA_SESSION_JSON`.
-  The login cookies are httpOnly: browser JavaScript and page captures cannot read them. Do not
-  log out of the portal afterwards: that ends the bot's session too.
+  login made by hand in Chrome, one per seller account: MAIN (19170, SJIT), DBCC (32207),
+  FMCC (35426). To give it a new one: logged in on the portal with that account, DevTools (F12)
+  > Network > any `partnersapi.myntrainfo.com` request > Request Headers > copy the `cookie:`
+  value, then run `python scripts/myntra_session.py MAIN` (or `DBCC` / `FMCC`; it reads the
+  clipboard, or a file given after the account). It checks the login is that account and saves it
+  to the Telegram worker (the copy the bots read); MAIN also to the GitHub secret
+  `MYNTRA_SESSION_JSON`. The login cookies are httpOnly: browser JavaScript and page captures
+  (netcap) cannot read them. Do not log out of the portal afterwards: that ends the bot's session
+  too. The 9:00 AM and 3:30 PM runs use every saved session and save the renewed cookies, which
+  keeps them alive.
   The sale run first uses `Seller_Orders_Report`s already on the portal (newest per day; also
   the last 30 days, for cancellations of older orders). Only days no report covers, or a report
   that does not download, get a new report, which the run waits for (~5-10 min). At 9:00 AM a

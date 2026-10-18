@@ -87,9 +87,11 @@ XpressBees). One package per bot: `bindal/sale`, `vms`, `ajio_tat`, `ajio_spf`.
 - SPF: per-run caps; any failed source turns the run into a dry run; a failed "ticket already
   exists?" check stops that ticket instead of raising a duplicate.
 - Myntra SJIT: the partner portal login has a reCAPTCHA (never bypassed). The bot reuses the
-  login made by hand in Chrome: the `cookie:` request header copied from DevTools into
-  `myntra_cookie.txt`, saved by `scripts/myntra_session.py` to the Telegram worker (KV
-  `myntra_session`, read first) and the secret `MYNTRA_SESSION_JSON`. Do not log out of the
+  login made by hand in Chrome: the `cookie:` request header copied from DevTools, saved by
+  `scripts/myntra_session.py MAIN|DBCC|FMCC` to the Telegram worker (KV `myntra_session`,
+  `myntra_session_dbcc`, `myntra_session_fmcc`; MAIN also the secret `MYNTRA_SESSION_JSON`).
+  Three separate seller logins: MAIN 19170 (SJIT), DBCC 32207, FMCC 35426; DBCC / FMCC are for
+  the monthly return analysis and are kept alive by the 9 AM and 3:30 PM sale runs. Do not log out of the
   portal: that ends the bot's session (a Chrome extension was tried and removed: the login
   cookies are httpOnly, host-only on partnersapi). Reports already on the portal are
   used first; only uncovered days get a new `Seller_Orders_Report` (the run waits for it). A
