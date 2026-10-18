@@ -49,3 +49,12 @@ def test_erp_labels_fill_only_missing_times():
     assert n == 1
     assert out.loc[0, "ERP Label By"] == "RAHUL" and str(out.loc[0, "ERP Label Time"]).startswith("2026-10-16 10:00")
     assert pd.isna(out.loc[1, "ERP Label Time"]) and out.loc[2, "ERP Label By"] == "OLD"
+
+
+def test_build_report_output_has_the_erp_columns_empty():
+    import pandas as pd
+    from bindal.ajio_tat.tat_engine import DATA_COLS, merge_master, normalize_master
+    old = normalize_master(pd.DataFrame({"Invoice No": ["I1"], "Order ID": ["1"], "AWB": ["A1"]}))
+    new = pd.DataFrame({"Invoice No": ["I2"], "Order ID": ["2"], "AWB": ["A2"]})   # no ERP columns
+    merged, stats = merge_master(old, new)
+    assert list(merged.columns) == DATA_COLS and stats["new"] == 1

@@ -186,7 +186,7 @@ def build_report(o, hist, summ, ev):
     out = agg.rename(columns={"Input Identifier": "Invoice No", "courier": "Courier",
                               "item_status": "OMS Item Status", "channel_order": "Order ID"})
     as_of = ev["ts"].max() if len(ev) else pd.Timestamp.now()
-    return out[DATA_COLS].reset_index(drop=True), as_of
+    return out.reindex(columns=DATA_COLS).reset_index(drop=True), as_of   # ERP columns come later
 
 
 def normalize_master(m):
@@ -207,6 +207,11 @@ def merge_master(old, new):
     Orders missing from today's input stay in the master untouched.
     A PENDING-<order id> row is dropped once that order shows up with an invoice."""
     old, new = old.reindex(columns=DATA_COLS), new.reindex(columns=DATA_COLS)
+    for c in DATA_COLS:                  # same dtype on both sides (an empty / newly added column is float)
+        if c in TIME_COLS:
+            old[c], new[c] = pd.to_datetime(old[c], errors="coerce"), pd.to_datetime(new[c], errors="coerce")
+        else:
+            old[c], new[c] = old[c].astype(object), new[c].astype(object)
     old = old.drop_duplicates("Invoice No", keep="last").set_index("Invoice No")
     new = new.drop_duplicates("Invoice No", keep="last").set_index("Invoice No")
     both = new.index.intersection(old.index)
@@ -222,7 +227,7 @@ def merge_master(old, new):
     merged = merged.drop(index=stale)
 
     # one row per AJIO order: if an order id still shows up twice, keep the invoiced / newest row
-    out = merged.reset_index()[DATA_COLS]
+    out = merged.reset_index().reindex(columns=DATA_COLS)
     oid = out["Order ID"].astype(str).str.replace(r"\.0$", "", regex=True)
     has_oid = out["Order ID"].notna() & ~oid.isin(["", "nan", "None"])
     rank = out.assign(_oid=oid, _pending=out["Invoice No"].astype(str).str.startswith(PENDING_PREFIX))
@@ -364,14 +369,14 @@ def summarize(df):
 # ------------------------------------------------------------ local xlsx copy
 
 def write_excel(data, path, source_note, as_of):
-    df = data[REPORT_COLS].copy()
+    df = data.reindex(columns=REPORT_COLS).copy()
     exact = data["RTS Exact"].fillna(True).astype(bool)
     with pd.ExcelWriter(path, engine="openpyxl") as xw:
         pd.DataFrame().to_excel(xw, sheet_name="Summary", index=False)
         df.to_excel(xw, sheet_name="TAT Report", index=False)
         late = df["TAT Result"] == "NOT CORRECT"
         df[late].to_excel(xw, sheet_name="Late Orders", index=False)
-        data[DATA_COLS].to_excel(xw, sheet_name="_data", index=False)
+        data.reindex(columns=DATA_COLS).to_excel(xw, sheet_name="_data", index=False)
         pd.DataFrame({"as_of": [as_of]}).to_excel(xw, sheet_name="_meta", index=False)
         late_exact = exact[late].tolist()
 
