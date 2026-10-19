@@ -139,7 +139,8 @@ def run_backfill(args, root: DriveFolder, work: Path) -> int:
     from . import yearly
     year = int(args.backfill_year)
     notes: list[str] = []
-    filled, results = yearly.backfill(root, year, work / "Supporting", work, date.today(), notes)
+    portals = {x.strip() for x in (args.backfill_portals or "").split(",") if x.strip()} or None
+    filled, results = yearly.backfill(root, year, work / "Supporting", work, date.today(), notes, portals)
     if not results:
         raise RuntimeError(f"yearly report {year} could not be built: " + "; ".join(notes[:10]))
     keep = output_dir("returns")
@@ -289,6 +290,8 @@ def main(argv=None) -> int:
                    help="use the files in the Drive folder's Input/ instead of fetching them")
     p.add_argument("--backfill-year", metavar="YYYY",
                    help="one-time build of that year's yearly report: fetch and build every finished month")
+    p.add_argument("--backfill-portals", default="", metavar="LIST",
+                   help="with --backfill-year: only fetch these again, e.g. FLIPKART or MYNTRA,AJIO (default all)")
     p.add_argument("--no-upload", action="store_true", help="keep the reports in output/returns only (test run)")
     p.add_argument("--no-telegram", action="store_true", help="print the summary instead of sending it")
     return run_bot("Return analysis", p, run, argv, key="returns")

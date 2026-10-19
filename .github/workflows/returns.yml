@@ -17,6 +17,9 @@ on:
       backfill_year:
         description: "YYYY = one-time build of that year's yearly report (fetches every finished month, a few hours)"
         default: ""
+      backfill_portals:
+        description: "With backfill_year: only these portals again, e.g. FLIPKART (empty = all)"
+        default: ""
       no_upload:
         description: "1 = test run: reports only as the run's artifact, Drive not changed"
         default: ""
@@ -58,6 +61,7 @@ jobs:
       IN_DRIVE_INPUT: ${{ inputs.drive_input }}
       IN_NO_UPLOAD: ${{ inputs.no_upload }}
       IN_BACKFILL_YEAR: ${{ inputs.backfill_year }}
+      IN_BACKFILL_PORTALS: ${{ inputs.backfill_portals }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
@@ -68,6 +72,7 @@ jobs:
           if [ -n "$IN_DRIVE_INPUT" ]; then set -- "$@" --drive-input; fi
           if [ -n "$IN_NO_UPLOAD" ]; then set -- "$@" --no-upload; fi
           if [ -n "$IN_BACKFILL_YEAR" ]; then set -- "$@" --backfill-year "$IN_BACKFILL_YEAR"; fi
+          if [ -n "$IN_BACKFILL_PORTALS" ]; then set -- "$@" --backfill-portals "$IN_BACKFILL_PORTALS"; fi
           bash scripts/github/ci_run.sh returns "$@"
       - name: Upload run output (encrypted)
         if: always()

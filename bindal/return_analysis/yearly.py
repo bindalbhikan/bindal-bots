@@ -249,9 +249,10 @@ def _month_input(raw: Path, month: date, inputs: Path) -> None:
 
 
 def backfill(root: DriveFolder, year: int, supporting: Path, work: Path, today: date,
-             notes: list[str]) -> tuple[list[date], list[dict]]:
+             notes: list[str], portals: set[str] | None = None) -> tuple[list[date], list[dict]]:
     """Fetch, build and keep every month of the year whose window is over, then build the year.
-    (months filled, yearly results)."""
+    portals: only these sources ("MYNTRA", "AJIO", "FLIPKART"; default all) are fetched again;
+    the other portals' saved months stay as they are. (months filled, yearly results)."""
     from concurrent.futures import ThreadPoolExecutor
     from ..portals import myntra as mp
     months = months_to_fill(year, today)
@@ -259,9 +260,16 @@ def backfill(root: DriveFolder, year: int, supporting: Path, work: Path, today: 
         raise RuntimeError(f"no month of {year} has its returns window over yet")
     log.info("Backfill %s: %s", year, [tag(m) for m in months])
     raw = work / "raw"
-    jobs = {f"Myntra {a}": (_myntra_account, (a, months, raw / "Myntra" / a, notes)) for a in mp.ACCOUNTS}
-    jobs["Ajio"] = (_ajio, (months, raw / "Ajio", notes))
-    jobs["Flipkart"] = (_flipkart, (months, raw / "Flipkart", notes))
+    portals = {p.upper() for p in portals} if portals else {"MYNTRA", "AJIO", "FLIPKART"}
+    jobs = {}
+    if "MYNTRA" in portals:
+        jobs.update({f"Myntra {a}": (_myntra_account, (a, months, raw / "Myntra" / a, notes)) for a in mp.ACCOUNTS})
+    if "AJIO" in portals:
+        jobs["Ajio"] = (_ajio, (months, raw / "Ajio", notes))
+    if "FLIPKART" in portals:
+        jobs["Flipkart"] = (_flipkart, (months, raw / "Flipkart", notes))
+    if not jobs:
+        raise RuntimeError(f"no known portal in {sorted(portals)} (MYNTRA, AJIO, FLIPKART)")
     with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
         futures = {name: pool.submit(fn, *args) for name, (fn, args) in jobs.items()}
     flipkart_left_out: set[date] = set()

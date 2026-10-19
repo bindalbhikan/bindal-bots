@@ -33,7 +33,19 @@ class FlipkartClient:
         self.csrf = ""
         self.seller_id = ""
 
-    def login(self) -> None:
+    def login(self, tries: int = 3) -> None:
+        """Log in; a dropped connection (Flipkart resets some, 18 Oct backfill) is tried again.
+        A refused login is not retried."""
+        for attempt in range(1, tries + 1):
+            try:
+                return self._login()
+            except requests.ConnectionError as exc:
+                if attempt == tries:
+                    raise
+                log.warning("Flipkart login: connection dropped (%s), trying again", exc)
+                time.sleep(20 * attempt)
+
+    def _login(self) -> None:
         xhr = {"Accept": "application/json, text/javascript, */*; q=0.01", "X-Requested-With": "XMLHttpRequest"}
         self.s.get(f"{BASE}/", timeout=self.timeout)
         r = self.s.post(f"{BASE}/login", headers={**xhr, "Content-Type": "application/json",
