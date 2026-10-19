@@ -129,9 +129,19 @@ def returns_complete(xlsx: bytes, start: date, slack_days: int = 7) -> tuple[boo
         when = r.get("return_requested_date")
     elif "return_requested_date" in r:
         when = when.fillna(r["return_requested_date"])
-    first = pd.to_datetime(when, errors="coerce").min()
+    dates = pd.to_datetime(when, errors="coerce").dropna()
+    first = dates.min() if len(dates) else pd.NaT
     if pd.isna(first) or first.date() > start + timedelta(days=slack_days):
         return False, f"Returns report starts {first:%d %b}" if not pd.isna(first) else "no return dates"
+    # A few returns at the start are not enough: Flipkart's cut-off can fall inside the window
+    # (Jun 2026: 47 June returns, then July in full). The first 14 days must hold at least
+    # a third of an average 14 days of the window.
+    begin = pd.Timestamp(start)
+    days = max((dates.max() - begin).days + 1, 14)
+    early = int((dates < begin + pd.Timedelta(days=14)).sum())
+    expected = len(dates) * 14 / days
+    if early < expected / 3:
+        return False, f"only {early} returns in its first 14 days (about {expected:.0f} expected)"
     return True, ""
 
 

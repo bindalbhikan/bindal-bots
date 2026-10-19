@@ -81,3 +81,6 @@ def test_flipkart_returns_completeness():
                   "return_approval_date": ["2026-09-01 00:00:00.0", "2026-10-02 00:00:00.0"]}).to_excel(
         real, sheet_name="Returns", index=False)
     assert sources.returns_complete(real.getvalue(), date(2026, 9, 1))[0]
+    # Flipkart's cut-off inside the window: a handful of early returns, then the next month in full
+    cut = ["2026-06-04"] * 3 + [f"2026-07-{d:02d}" for d in range(1, 15) for _ in range(20)]
+    assert not sources.returns_complete(xlsx(cut), date(2026, 6, 1))[0]
