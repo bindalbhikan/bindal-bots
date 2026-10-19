@@ -64,20 +64,40 @@ def fetch_account(account: str, today: date, dest: Path, notes: list[str],
     """The account's returns, delivery and order reports into dest. Different reports are asked
     for together; the same report again only after the cooldown. Jobs for the same dates are reused.
 
-    old_orders: older order-report months for returns that still have no ORDER AMOUNT. A report
-    already on the portal is just downloaded; at most MYNTRA_SPF_OLD_ORDERS_NEW new ones are asked
-    for per run (each costs a cooldown), the rest on the next runs. A refused request is asked
-    again after the cooldown, up to 3 times."""
+    old_orders: older order-report months for returns that still have no ORDER AMOUNT. They never
+    hold up the run: a report already on the portal is just downloaded, at most
+    MYNTRA_SPF_OLD_ORDERS_NEW (1) new one is asked for per run, after the daily ones, and is
+    waited for only MYNTRA_SPF_OLD_WAIT_MINUTES (10); the rest, a refusal or a report not ready
+    in time are left to the next runs. Daily reports refused are asked again after the cooldown,
+    up to 3 times."""
     from ..return_analysis.sources import myntra_portal
     from ..portals import myntra as mp
     portal = myntra_portal(account)
+    dest.mkdir(parents=True, exist_ok=True)
+    left: list[str] = []
+    old_jobs, ask_old = [], []
+    listed = portal.jobs(100) if old_orders else []
+    for a, b in old_orders or []:
+        job = mp.exact_job(listed, mp.REPORT_ID, a, b)
+        status = str((job or {}).get("status") or "").upper()
+        if job and status == "COMPLETED" and job.get("successFile"):
+            try:
+                name, data = portal.download(job)
+                (dest / name).write_bytes(data)
+                continue
+            except Exception as exc:  # noqa: BLE001 - expired link: asked for again
+                log.warning("%s old order report %s..%s not downloaded: %s", account, a, b, exc)
+        elif job and not any(f in status for f in mp.FAILED):
+            old_jobs.append(job)             # still running: collected below
+            continue
+        ask_old.append((a, b))
+    cap = num("MYNTRA_SPF_OLD_ORDERS_NEW", 1)
+    left += [f"{a:%b %Y}" for a, _ in ask_old[cap:]]
     queues = [[(rid, a, b, False) for a, b in ranges] for rid, ranges in _windows(today).items()]
     for q in queues:
         if q and q[0][0] == mp.REPORT_ID:
-            q.extend((mp.REPORT_ID, a, b, True) for a, b in (old_orders or []))
-    new_old, cap = 0, num("MYNTRA_SPF_OLD_ORDERS_NEW", 3)
+            q.extend((mp.REPORT_ID, a, b, True) for a, b in ask_old[:cap])
     tries: dict[tuple, int] = {}
-    left: list[str] = []
     jobs = []
     while any(queues):
         asked = False
@@ -86,38 +106,43 @@ def fetch_account(account: str, today: date, dest: Path, notes: list[str],
                 continue
             rid, a, b, old = q[0]
             job = mp.exact_job(portal.jobs(100), rid, a, b)
-            if not job and old and new_old >= cap:
-                left.append(f"{a:%b %Y}")       # asked for on a later run
-                q.pop(0)
-                continue
             if not job:
                 asked = True                     # a refusal too: the next one of this report waits
                 try:
                     job = portal.schedule(a, b, rid, cooldown_wait=False)
-                    new_old += old
                 except Exception as exc:  # noqa: BLE001 - that report only
                     key = (rid, a, b)
                     tries[key] = tries.get(key, 0) + 1
                     log.warning("%s report %s %s..%s refused (try %d): %s", account, rid, a, b, tries[key], exc)
+                    if old:
+                        left.append(f"{a:%b %Y}")
+                        q.pop(0)
+                        continue
                     if tries[key] < 3:
                         continue                 # stays first: asked again after the cooldown
                     notes.append(f"{account} report {rid} {a}..{b}: {str(exc)[:80]}")
                     q.pop(0)
                     continue
-            jobs.append(job)
+            (old_jobs if old else jobs).append(job)
             q.pop(0)
         if asked and any(queues):
             log.info("%s: waiting for the report cooldown", account)
             time.sleep(COOLDOWN_SECONDS)
-    if left:
-        notes.append(f"{account}: older order reports still to fetch (next runs): {', '.join(left)}")
-    dest.mkdir(parents=True, exist_ok=True)
     for job in jobs:
         try:
             name, data = portal.collect_or_regenerate(job, wait_minutes=num("MYNTRA_SPF_WAIT_MINUTES", 45))
             (dest / name).write_bytes(data)
         except Exception as exc:  # noqa: BLE001
             notes.append(f"{account} report job {job.get('id')}: {str(exc)[:80]}")
+    for job in old_jobs:                         # no regenerating: a next run finds the job done
+        try:
+            name, data = portal.collect(job, wait_minutes=num("MYNTRA_SPF_OLD_WAIT_MINUTES", 10))
+            (dest / name).write_bytes(data)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("%s old order report job %s left to the next run: %s", account, job.get("id"), exc)
+            left.append(str((job.get("queryParams") or {}).get("reportStartDate", job.get("id"))))
+    if left:
+        notes.append(f"{account}: older order reports still to fetch (next runs): {', '.join(left)}")
     mp.save_to_worker(env, portal.cookies(), account)
 
 

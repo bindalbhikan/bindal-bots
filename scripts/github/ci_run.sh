@@ -6,11 +6,17 @@
 # log and its output/ folder are packed and encrypted with the ARTIFACT_KEY secret into
 # secure/output.tar.gz.enc (the only file uploaded as the run's artifact); the public log shows
 # only the exit code. Read a run's output with:  python scripts/github/run_output.py <run id>
-# Failures still reach Telegram from the bot itself.
+# Failures still reach Telegram from the bot itself. RUN_TIMEOUT (e.g. 140m), set below the job's
+# timeout-minutes, stops the bot first so a run that takes too long still leaves its log.
 set -u
 mkdir -p output secure
-python run.py "$@" > output/run.log 2>&1
+if [ -n "${RUN_TIMEOUT:-}" ]; then
+  timeout -k 60 "$RUN_TIMEOUT" python run.py "$@" > output/run.log 2>&1
+else
+  python run.py "$@" > output/run.log 2>&1
+fi
 status=$?
+[ "$status" = 124 ] && echo "run.py $1 stopped after RUN_TIMEOUT=$RUN_TIMEOUT" | tee -a output/run.log
 echo "run.py $1 finished with exit code $status (log and output: encrypted artifact)"
 if [ -n "${ARTIFACT_KEY:-}" ]; then
   tar -czf - output | openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:ARTIFACT_KEY \

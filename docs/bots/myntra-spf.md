@@ -18,8 +18,11 @@ On demand: `/myntraspf`.
   value (18 Oct: MAIN 4,306, DBCC 1,544, FMCC 177). Each run works out, from the master, the
   calendar months of order reports those returns need (45 days before each return up to it,
   `MYNTRA_SPF_ORDER_LOOKBACK`) and fetches them: a report already on the portal is only
-  downloaded; at most `MYNTRA_SPF_OLD_ORDERS_NEW` (3) new ones per account per run, the rest on
-  the next runs (named in the notes). A value once filled stays in the master.
+  downloaded; at most `MYNTRA_SPF_OLD_ORDERS_NEW` (1) new one per account per run, asked for after
+  the daily reports and waited for only `MYNTRA_SPF_OLD_WAIT_MINUTES` (10); the rest, refusals
+  and reports not ready in time are left to the next runs (named in the notes), so they never
+  hold up the run (19 Oct: 3 per run with retries and 45-minute waits ran past the 150-minute
+  job limit). A value once filled stays in the master.
 * **SJIT and FBM orders are not worked** (`NOT_WORKED_MODELS`): their rows stay on the sheets,
   but CLAIM STATUS is always NON ELIGIBLE, OMSGuru does not check them, and the summaries and the
   dashboard leave them out. A row with a blank `model` from a warehouse that is not one of ours
