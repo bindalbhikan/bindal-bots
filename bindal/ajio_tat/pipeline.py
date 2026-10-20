@@ -18,7 +18,7 @@ from ..core.config import ROOT, csv_list, env, num, output_dir
 from ..portals.omsguru import OmsGuruClient
 from .tat_engine import (OPEN_PICKUP, apply_status, apply_tracking,
                          needs_oms_refresh, build_report, merge_master, normalize_master,
-                         prepare_tracking, summarize, write_excel)
+                         parse_oms, prepare_tracking, summarize, write_excel)
 
 KEEP_BACKUPS = 30
 MASTER_NAME = "AJIO_TAT_MASTER.xlsx"
@@ -135,12 +135,15 @@ def track(pairs: pd.DataFrame):
 
 def awbs_to_track(o: pd.DataFrame, old_status: pd.DataFrame) -> pd.DataFrame:
     """AWBs whose pickup is still open: orders just read from OMS, plus master orders
-    still 'Pending Pickup' from the last TRACK_DAYS days. Picked / cancelled ones are skipped."""
+    still 'Pending Pickup' from the last TRACK_DAYS days. Picked / cancelled ones are skipped,
+    and so are orders older than TRACK_DAYS (a rebuild from far back reads thousands of them)."""
+    since = pd.Timestamp.now().normalize() - pd.Timedelta(days=num("TRACK_DAYS", 15))
     fresh = pd.DataFrame({
         "AWB": o["AWB / Shipment Tracker"].astype(str).str.extract(r"^\s*([A-Za-z0-9]+)")[0],
-        "Courier": o["Shipping Company"], "Status": o["Item Status"].astype(str)})
-    fresh = fresh[~fresh["Status"].str.contains("cancel", case=False)]
-    since = pd.Timestamp.now().normalize() - pd.Timedelta(days=num("TRACK_DAYS", 15))
+        "Courier": o["Shipping Company"], "Status": o["Item Status"].astype(str),
+        "Order Time": parse_oms(o["Order Date"])})
+    fresh = fresh[~fresh["Status"].str.contains("cancel", case=False)
+                  & (fresh["Order Time"].isna() | (fresh["Order Time"] >= since))]
     is_open = old_status["Pickup Status"].isin(OPEN_PICKUP)
     pend = old_status[is_open & (old_status["Order Time"] >= since)]
     pend = pend[["AWB", "Courier"]]
