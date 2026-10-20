@@ -1,0 +1,63 @@
+name: Morning report
+
+on:
+  # 9:30 AM IST daily (04:00 UTC). GitHub's own schedule, not the Telegram bot's Cloudflare cron:
+  # its free plan's 5 triggers are all used.
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      day:
+        description: "Report day YYYY-MM-DD (empty = yesterday)"
+        default: ""
+      chat_id:
+        description: "Telegram chat for this run's report (empty = default chat)"
+        default: ""
+
+concurrency:
+  group: morning
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/github/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+      OMSGURU_EMAIL: ${{ secrets.OMSGURU_EMAIL }}
+      OMSGURU_PASSWORD: ${{ secrets.OMSGURU_PASSWORD }}
+      OMSGURU_OTP: ${{ secrets.OMSGURU_OTP }}
+      FLIPKART_EMAIL: ${{ secrets.FLIPKART_EMAIL }}
+      FLIPKART_PASSWORD: ${{ secrets.FLIPKART_PASSWORD }}
+      FBF_LOCATIONS: ${{ vars.FBF_LOCATIONS }}
+      SJIT_DRIVE_FOLDER_ID: ${{ secrets.SJIT_DRIVE_FOLDER_ID }}
+      MYNTRA_SESSION_JSON: ${{ secrets.MYNTRA_SESSION_JSON }}
+      # the SJIT report asked for at 7 AM: waited for 5 minutes at most, the report goes out anyway
+      SJIT_WAIT_MINUTES: "5"
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ inputs.chat_id || secrets.TELEGRAM_CHAT_ID }}
+      # Myntra sessions and the agent's free model (/api/ai) are reached through the worker
+      DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
+      AGENT_MODEL: ${{ vars.AGENT_MODEL }}
+      IN_DAY: ${{ inputs.day }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run report
+        run: |
+          set --
+          if [ -n "$IN_DAY" ]; then set -- --day "$IN_DAY"; fi
+          bash scripts/github/ci_run.sh morning "$@"
+      - name: Upload run output (encrypted)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: morning-${{ github.run_id }}
+          path: secure/
+          if-no-files-found: ignore
+          retention-days: 14
