@@ -1,0 +1,49 @@
+name: OMSGuru inventory push
+
+on:
+  # Every 3 hours (UTC cron; IST = UTC + 5:30): 12, 3, 6, 9 AM and PM IST. GitHub's own schedule,
+  # not the Telegram bot's Cloudflare cron: its free plan's 5 triggers are all used.
+  schedule:
+    - cron: "30 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "1 = list the channels only, push nothing"
+        default: ""
+
+concurrency:
+  group: inv-push
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/github/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+      OMSGURU_EMAIL: ${{ secrets.OMSGURU_EMAIL }}
+      OMSGURU_PASSWORD: ${{ secrets.OMSGURU_PASSWORD }}
+      OMSGURU_OTP: ${{ secrets.OMSGURU_OTP }}
+      INV_PUSH_SKIP: ${{ vars.INV_PUSH_SKIP }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      IN_DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run push
+        run: |
+          set --
+          if [ -n "$IN_DRY_RUN" ]; then set -- --dry-run; fi
+          bash scripts/github/ci_run.sh inv-push "$@"
+      - name: Upload run output (encrypted)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inv-push-${{ github.run_id }}
+          path: secure/
+          if-no-files-found: ignore
+          retention-days: 7

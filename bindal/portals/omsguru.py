@@ -2,6 +2,7 @@
 
   login / warehouses / set_warehouse   one session, warehouse by warehouse
   list_orders / fetch_window           AJIO TAT: orders of a date window + order pages
+  channels / push_inventory            inv-push: Push Inventory on every channel
   get / order_filter                   sale + VMS bots read the list pages themselves
   search                               SPF bot: the search-box autocomplete (AWB / order id)
 
@@ -36,6 +37,7 @@ MAX_PAGES = 50                 # 300 orders per list page
 LIST_DAYS = 7
 LIST_CAP = 2500
 VIEW_ID = re.compile(r"/orders/view/(\d+)")
+VIEW_CHANNEL = re.compile(r"/channel_companies/edit/(\d+)")
 
 # Item statuses OMSGuru uses (from the list page's status filter), longest first so
 # "Cancelled Return Received - RTO" wins over "Cancelled".
@@ -155,6 +157,44 @@ class OmsGuruClient:
 
     def set_warehouse(self, warehouse_id: str) -> None:
         self.get(f"{BASE_URL}/orders/setCurWarehouse/{warehouse_id}")
+
+    # ------------------------------------------------------------ channels
+    def channels(self) -> list[dict]:
+        """Every channel (Channel > List Channels): id, name, channel, inventory sync on or off."""
+        soup = BeautifulSoup(self.get(f"{BASE_URL}/channel_companies").text, "html.parser")
+        head = [text_of(th) for th in soup.select("table thead th")]
+        col = {h: i for i, h in enumerate(head)}
+        out = []
+        for tr in soup.select("table tbody tr"):
+            a = tr.select_one('a[href*="/channel_companies/edit/"]')
+            m = VIEW_CHANNEL.search(a["href"]) if a else None
+            if not m:
+                continue
+            cells = [text_of(td) for td in tr.select("td")]
+            cell = lambda name: cells[col[name]] if name in col and col[name] < len(cells) else ""  # noqa: E731
+            out.append({"id": m.group(1), "name": cell("Name"), "channel": cell("Channel"),
+                        "account": cell("Email / UserID / Site"),
+                        "inventory_sync": cell("Inventory Sync Enabled").upper() == "YES"})
+        return out
+
+    def push_inventory(self, channel_id: str) -> str:
+        """Related Actions > Push Inventory on the channel's page (all its listings). Returns the
+        message OMSGuru shows after it."""
+        page = f"{BASE_URL}/channel_companies/edit/{channel_id}"
+        soup = BeautifulSoup(self.get(page).text, "html.parser")
+        form = soup.select_one(f'form[action$="/channel_companies/pushInventory/{channel_id}"]')
+        if form is None:
+            raise OmsGuruError(f"No Push Inventory form on channel {channel_id}'s page - layout changed?")
+        data = {i["name"]: i.get("value", "") for i in form.select("input[name]")}
+        r = self.s.post(f"{BASE_URL}{form['action']}", data=data, timeout=self.timeout,
+                        headers={"Referer": page, "Origin": BASE_URL})
+        if r.status_code != 200 or "/login" in r.url:
+            raise OmsGuruError(f"Push Inventory for channel {channel_id}: HTTP {r.status_code} ({r.url[:80]})")
+        res = BeautifulSoup(r.text, "html.parser")
+        msg = text_of(res.select_one("#flashMessage, .alert, .message, .error-message"))
+        if re.search(r"error|fail|not allowed|invalid", msg, re.I):
+            raise OmsGuruError(f"Push Inventory for channel {channel_id}: {msg[:200]}")
+        return msg
 
     def fetch_window(self, start: datetime, end: datetime, channel_ids: list[str],
                      warehouse_ids: list[str] | None = None, skip_channel_orders: set[str] | None = None):
