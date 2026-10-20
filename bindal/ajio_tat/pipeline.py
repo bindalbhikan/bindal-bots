@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import shutil
+import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -131,6 +132,14 @@ def save_master_xlsx(df, path: Path, note: str, as_of) -> None:
         os.replace(tmp, path)
     except PermissionError:
         raise RuntimeError(f"Master file is open in Excel - close it and run again: {path}")
+    # in a Google Drive for desktop folder (a local run from G:) the swapped-in file came out
+    # broken once (bad CRC in docProps/core.xml): never upload such a file
+    try:
+        bad = zipfile.ZipFile(path).testzip()
+    except zipfile.BadZipFile as exc:
+        bad = str(exc)
+    if bad:
+        raise RuntimeError(f"Saved master is damaged ({bad}), not uploaded: {path}")
     log.info("Master xlsx saved: %s", path)
 
 
