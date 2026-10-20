@@ -1,0 +1,43 @@
+name: Stock-out alert
+
+on:
+  # 10 AM IST (04:30 UTC). GitHub's own schedule, not the Telegram bot's Cloudflare cron: its free
+  # plan's 5 triggers are all used.
+  schedule:
+    - cron: "30 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: stock
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40   # the OMSGuru inventory export takes 1-10 minutes per warehouse
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/github/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+      OMSGURU_EMAIL: ${{ secrets.OMSGURU_EMAIL }}
+      OMSGURU_PASSWORD: ${{ secrets.OMSGURU_PASSWORD }}
+      OMSGURU_OTP: ${{ secrets.OMSGURU_OTP }}
+      STOCK_SALE_DAYS: ${{ vars.STOCK_SALE_DAYS }}
+      STOCK_MIN_SOLD: ${{ vars.STOCK_MIN_SOLD }}
+      STOCK_DAYS: ${{ vars.STOCK_DAYS }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run alert
+        run: bash scripts/github/ci_run.sh stock
+      - name: Upload run output (encrypted)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-${{ github.run_id }}
+          path: secure/
+          if-no-files-found: ignore
+          retention-days: 7

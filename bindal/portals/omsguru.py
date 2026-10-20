@@ -11,10 +11,12 @@ OMSGuru_All_Order_Data_*.xlsx export, so the TAT engine takes them unchanged.
 """
 from __future__ import annotations
 
+import io
 import json
 import logging
 import re
 import time
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from urllib.parse import quote
@@ -157,6 +159,34 @@ class OmsGuruClient:
 
     def set_warehouse(self, warehouse_id: str) -> None:
         self.get(f"{BASE_URL}/orders/setCurWarehouse/{warehouse_id}")
+
+    # ------------------------------------------------------------ inventory
+    def export_inventory(self, wait_minutes: float = 12, poll_seconds: int = 20) -> bytes:
+        """The current warehouse's inventory (Products > Inventory > Export Inventory): a CSV of
+        Item SkuCode / Qty / ... OMSGuru builds it in the background and posts a "download the
+        inventory file" link in the notifications, usually within 1-10 minutes."""
+        page = f"{BASE_URL}/skus/inventory"
+        soup = BeautifulSoup(self.get(page).text, "html.parser")
+        form = soup.select_one('form[action*="/skus/exportInventory/"]')
+        if form is None:
+            raise OmsGuruError("No Export Inventory form on the inventory page - layout changed?")
+        before = {a["href"] for a in soup.select('a[href*="/orders/download/"]')}
+        data = {i["name"]: i.get("value", "") for i in form.select("input[name]")}
+        r = self.s.post(f"{BASE_URL}{form['action']}", data=data, timeout=self.timeout,
+                        headers={"Referer": page, "Origin": BASE_URL})
+        if r.status_code != 200 or "queued" not in r.text.lower():
+            raise OmsGuruError(f"Inventory export not queued: HTTP {r.status_code}")
+        deadline = time.time() + wait_minutes * 60
+        while time.time() < deadline:
+            time.sleep(poll_seconds)
+            soup = BeautifulSoup(self.get(page).text, "html.parser")
+            for a in soup.select('a[href*="/orders/download/"]'):
+                item = a.find_parent("li") or a
+                if a["href"] not in before and re.search(r"inventory file", item.get_text(" "), re.I):
+                    blob = self.get(a["href"]).content
+                    with zipfile.ZipFile(io.BytesIO(blob)) as z:
+                        return z.read(next(n for n in z.namelist() if n.lower().endswith(".csv")))
+        raise OmsGuruError(f"Inventory export not ready after {wait_minutes} minutes")
 
     # ------------------------------------------------------------ channels
     def channels(self) -> list[dict]:
