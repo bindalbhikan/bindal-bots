@@ -7,7 +7,7 @@ on:
     workflows: ["AJIO ads TOT gap", "AJIO SPF run", "AJIO TAT daily update", "OMSGuru inventory push",
                 "Myntra SPF master", "Return analysis", "Daily sale report", "Myntra VMS report",
                 "Morning report", "SLA warning", "Label check", "Stock-out alert",
-                "Evening summary", "Weekly review", "Dead stock report"]
+                "Evening summary", "Weekly review", "Dead stock report", "Listing health"]
     types: [completed]
   workflow_dispatch:
     inputs:

@@ -18,6 +18,7 @@
   evening    8 PM summary of the day        python run.py evening --help
   weekly     Monday business review         python run.py weekly --help
   deadstock  monthly dead / slow stock      python run.py deadstock --help
+  listings   11:30 AM listing health        python run.py listings --help
 """
 import importlib
 import sys
@@ -29,7 +30,8 @@ BOTS = {"sale": "bindal.sale.pipeline", "vms": "bindal.vms.pipeline",
         "agent-watch": "bindal.agent.watch", "agent-chat": "bindal.agent.chat", "morning": "bindal.morning.pipeline",
         "sla": "bindal.sla.pipeline", "labels": "bindal.labels.pipeline",
         "stock": "bindal.stock.pipeline", "evening": "bindal.evening.pipeline",
-        "weekly": "bindal.weekly.pipeline", "deadstock": "bindal.deadstock.pipeline"}
+        "weekly": "bindal.weekly.pipeline", "deadstock": "bindal.deadstock.pipeline",
+        "listings": "bindal.listings.pipeline"}
 
 
 def main(argv: list[str]) -> int:

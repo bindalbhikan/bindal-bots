@@ -1,0 +1,41 @@
+name: Listing health
+
+on:
+  # 11:30 AM IST (06:00 UTC). GitHub's own schedule, not the Telegram bot's Cloudflare cron: its free
+  # plan's 5 triggers are all used.
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: listings
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45   # the inventory export (1-10 min a warehouse) and the listing export
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/github/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+      OMSGURU_EMAIL: ${{ secrets.OMSGURU_EMAIL }}
+      OMSGURU_PASSWORD: ${{ secrets.OMSGURU_PASSWORD }}
+      OMSGURU_OTP: ${{ secrets.OMSGURU_OTP }}
+      LISTING_FAIL_DAYS: ${{ vars.LISTING_FAIL_DAYS }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run check
+        run: bash scripts/github/ci_run.sh listings
+      - name: Upload run output (encrypted)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: listings-${{ github.run_id }}
+          path: secure/
+          if-no-files-found: ignore
+          retention-days: 7

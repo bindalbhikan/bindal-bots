@@ -160,33 +160,68 @@ class OmsGuruClient:
     def set_warehouse(self, warehouse_id: str) -> None:
         self.get(f"{BASE_URL}/orders/setCurWarehouse/{warehouse_id}")
 
-    # ------------------------------------------------------------ inventory
-    def export_inventory(self, wait_minutes: float = 12, poll_seconds: int = 20) -> bytes:
-        """The current warehouse's inventory (Products > Inventory > Export Inventory): a CSV of
-        Item SkuCode / Qty / ... OMSGuru builds it in the background and posts a "download the
-        inventory file" link in the notifications, usually within 1-10 minutes."""
-        page = f"{BASE_URL}/skus/inventory"
+    # ------------------------------------------------------------ exports
+    def _queued_export(self, page: str, form_css: str, link_text: str, what: str,
+                       wait_minutes: float, poll_seconds: int) -> bytes:
+        """Submit an export form; OMSGuru builds the file in the background and posts a download
+        link (whose text matches link_text) in the notifications. The zip's CSV, as bytes."""
+        page = f"{BASE_URL}{page}"
         soup = BeautifulSoup(self.get(page).text, "html.parser")
-        form = soup.select_one('form[action*="/skus/exportInventory/"]')
+        form = soup.select_one(form_css)
         if form is None:
-            raise OmsGuruError("No Export Inventory form on the inventory page - layout changed?")
+            raise OmsGuruError(f"No {what} export form on {page} - layout changed?")
         before = {a["href"] for a in soup.select('a[href*="/orders/download/"]')}
         data = {i["name"]: i.get("value", "") for i in form.select("input[name]")}
         r = self.s.post(f"{BASE_URL}{form['action']}", data=data, timeout=self.timeout,
                         headers={"Referer": page, "Origin": BASE_URL})
         if r.status_code != 200 or "queued" not in r.text.lower():
-            raise OmsGuruError(f"Inventory export not queued: HTTP {r.status_code}")
+            raise OmsGuruError(f"{what} export not queued: HTTP {r.status_code}")
         deadline = time.time() + wait_minutes * 60
         while time.time() < deadline:
             time.sleep(poll_seconds)
             soup = BeautifulSoup(self.get(page).text, "html.parser")
             for a in soup.select('a[href*="/orders/download/"]'):
                 item = a.find_parent("li") or a
-                if a["href"] not in before and re.search(r"inventory file", item.get_text(" "), re.I):
+                if a["href"] not in before and re.search(link_text, item.get_text(" "), re.I):
                     blob = self.get(a["href"]).content
                     with zipfile.ZipFile(io.BytesIO(blob)) as z:
                         return z.read(next(n for n in z.namelist() if n.lower().endswith(".csv")))
-        raise OmsGuruError(f"Inventory export not ready after {wait_minutes} minutes")
+        raise OmsGuruError(f"{what} export not ready after {wait_minutes} minutes")
+
+    def export_inventory(self, wait_minutes: float = 12, poll_seconds: int = 20) -> bytes:
+        """The current warehouse's inventory (Products > Inventory > Export Inventory): a CSV of
+        Item SkuCode / Qty / ..., usually ready within 1-10 minutes."""
+        return self._queued_export("/skus/inventory", 'form[action*="/skus/exportInventory/"]', r"inventory file",
+                                   "Inventory", wait_minutes, poll_seconds)
+
+    def export_listings(self, wait_minutes: float = 15, poll_seconds: int = 20) -> bytes:
+        """Every mapped channel listing (Channel Listings > Download Mapped Channel Listings): a CSV
+        of Channel Name / Product SkuCode / Channel Listed Qty / Channel Max Listed Qty / Failure
+        Reason / prices / Sync Mode ... (160,743 lines on 20 Oct 2026, ready in about 30 s)."""
+        return self._queued_export("/channel_listings", 'form[action*="/skus/download_skus/"]',
+                                   r"channel_listing_mapping", "Channel listing", wait_minutes, poll_seconds)
+
+    def failed_listings(self) -> list[dict]:
+        """Channel Listings > Failed: channel, listing id, SKUs, qty, the failure text."""
+        out = []
+        for page in range(1, 30):
+            url = f"{BASE_URL}/channel_listings/index/2" + (f"/page:{page}" if page > 1 else "")
+            soup = BeautifulSoup(self.get(url).text, "html.parser")
+            rows = soup.select("table tbody > tr")
+            for tr in rows:
+                tds = [text_of(td) for td in tr.find_all("td", recursive=False)]
+                if len(tds) >= 7:
+                    out.append({"channel": tds[1], "listing": tds[2], "listing_sku": tds[3], "sku": tds[4],
+                                "qty": tds[5], "failure": tds[6]})
+            if not rows or not soup.select_one(f'a[href*="page:{page + 1}"]'):
+                break
+        return out
+
+    def unmanaged_count(self) -> int:
+        """How many channel listings are not mapped to an OMSGuru SKU (Channel Listings > UnManaged)."""
+        m = re.search(r"showing \d+ records out of (\d+)",
+                      BeautifulSoup(self.get(f"{BASE_URL}/channel_listings/index/0").text, "html.parser").get_text(" "))
+        return int(m.group(1)) if m else 0
 
     # ------------------------------------------------------------ channels
     def channels(self) -> list[dict]:
