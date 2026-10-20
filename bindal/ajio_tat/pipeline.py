@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import os
+import re
 import shutil
 import zipfile
 from datetime import datetime, timedelta
@@ -32,6 +33,21 @@ def _key(s):
     return s.astype(str).str.strip().str.upper().str.replace(r"\.0$", "", regex=True)
 
 
+def ajio_order_report(first, last) -> pd.DataFrame:
+    """The AJIO Dropship order report for order dates first..last, read 30 days at a time."""
+    from ..portals.ajio import AjioClient
+    client = AjioClient(env("AJIO_USERNAME"), env("AJIO_PASSWORD"))
+    client.login()
+    frames, a = [], first
+    while a <= last:
+        b = min(a + timedelta(days=29), last)
+        data = client.order_report(a, b)
+        if data:
+            frames.append(pd.read_excel(io.BytesIO(data), dtype=str))
+        a = b + timedelta(days=1)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
 def ajio_report(df, errors: list[str]):
     """From the AJIO Dropship order report, for the orders still without them:
     Cust Order No (AJIO's FN... order number, matched on the seller order = Order ID) and
@@ -46,25 +62,15 @@ def ajio_report(df, errors: list[str]):
     want = (no_pick | no_cust) & df["Order Time"].notna()
     if not want.any():
         return df
-    from ..portals.ajio import AjioClient
     first, last = df.loc[want, "Order Time"].min().date(), df.loc[want, "Order Time"].max().date()
-    frames = []
     try:
-        client = AjioClient(env("AJIO_USERNAME"), env("AJIO_PASSWORD"))
-        client.login()
-        a = first
-        while a <= last:
-            b = min(a + timedelta(days=29), last)
-            data = client.order_report(a, b)
-            if data:
-                frames.append(pd.read_excel(io.BytesIO(data), dtype=str))
-            a = b + timedelta(days=1)
+        rep = ajio_order_report(first, last)
     except Exception as exc:  # noqa: BLE001 - courier / OMSGuru values stand
         log.exception("AJIO order report not read")
         errors.append(f"AJIO order report not read: {str(exc)[:100]}")
-    if not frames:
         return df
-    rep = pd.concat(frames, ignore_index=True)
+    if rep.empty:
+        return df
     df = df.copy()
 
     named = rep.dropna(subset=["Cust Order No"])
@@ -164,12 +170,44 @@ def warehouse_ids() -> list[str]:
     return csv_list("OMSGURU_WAREHOUSE_IDS")
 
 
-def fetch_oms(start: datetime, end: datetime, skip_channel_orders: set[str]):
+def csv_list_of(text: str | None) -> list[str]:
+    return list(dict.fromkeys(t.upper() for t in re.split(r"[\s,]+", text or "") if t))
+
+
+def seller_orders(numbers: list[str]) -> list[str]:
+    """AJIO numbers as OMSGuru knows them: a customer order number (FN... / EX...) becomes the
+    seller order number through the AJIO order report of the last ORDERS_LOOKBACK_DAYS (180);
+    seller order numbers, invoices and AWBs are kept as they are."""
+    cust = [n for n in numbers if re.fullmatch(r"[A-Z]{2}\d{8,}", n)]
+    if not cust:
+        return numbers
+    today = datetime.now().date()
+    rep = ajio_order_report(today - timedelta(days=num("ORDERS_LOOKBACK_DAYS", 180)), today)
+    to_seller = (rep.dropna(subset=["Cust Order No"]).drop_duplicates("Cust Order No")
+                 .set_index("Cust Order No")["FWD Seller Order NO"]) if len(rep) else pd.Series(dtype=str)
+    missing = [n for n in cust if n not in to_seller.index]
+    if missing:
+        log.warning("Not in the AJIO order report: %s", ", ".join(missing))
+    return [n for n in numbers if n not in cust] + [to_seller[n] for n in cust if n in to_seller.index]
+
+
+def fetch_oms(start: datetime, end: datetime, skip_channel_orders: set[str], extra: list[str] = ()):
+    """The window's AJIO orders; extra: order numbers to read too, whatever their date (--orders)."""
     client = OmsGuruClient.from_env(workers=num("OMSGURU_WORKERS", 6))
     client.login()
     channels = csv_list("AJIO_CHANNEL_IDS", "57285,34958")
     log.info("Listing AJIO orders %s -> %s (channels %s)", start, end, channels)
     o, hist, errors = client.fetch_window(start, end, channels, warehouse_ids(), skip_channel_orders)
+    if extra:
+        terms, ids = seller_orders(list(extra)), []
+        for wh in warehouse_ids() or list(client.warehouses()) or [None]:
+            if wh:
+                client.set_warehouse(wh)
+            for t in terms:
+                ids += [i for i in client.search(t, "order") if i not in ids]
+        log.info("--orders: %d numbers, %d OMSGuru orders found", len(extra), len(ids))
+        o2, h2, e2 = client.fetch_orders(ids)
+        o, hist, errors = pd.concat([o, o2], ignore_index=True), pd.concat([hist, h2], ignore_index=True), errors + e2
     log.info("%d AJIO order lines fetched", len(o))
     hist["ts"] = pd.to_datetime(hist["Timestamp"], format="%B %d, %Y %I:%M:%S %p", errors="coerce")
     return o, hist, errors
@@ -416,7 +454,7 @@ def run(args) -> int:
     old_status = apply_status(old, pd.Timestamp.now()) if len(old) else old.assign(**{"Pickup Status": None})
     complete = set(old_status.loc[~needs_oms_refresh(old_status), "Order ID"].dropna().astype(str))
     start, end = oms_window(args)
-    o, hist, errors = fetch_oms(start, end, complete)
+    o, hist, errors = fetch_oms(start, end, complete, csv_list_of(args.orders))
 
     # 3) courier tracking, only where pickup is not confirmed yet
     (summ, ev), n_awbs, track_errors = track(awbs_to_track(o, old_status))
@@ -508,5 +546,7 @@ def main(argv=None) -> int:
     p.add_argument("--no-drive", action="store_true", help="ignore TAT_DRIVE_FILE_ID (use the local xlsx)")
     p.add_argument("--no-telegram", action="store_true", help="do not send the Telegram message")
     p.add_argument("--seed-xlsx", help="one-time: load an existing AJIO_TAT_MASTER.xlsx into the master")
+    p.add_argument("--orders", help="also add these AJIO orders, whatever their date: comma / space separated "
+                                     "FN... / EX... customer order numbers, seller order numbers, invoices or AWBs")
     p.add_argument("--probe", action="store_true", help="test OMSGuru login + listing only")
     return run_bot("AJIO Dispatch TAT report", p, lambda a: probe(a) if a.probe else run(a), argv, key="ajio_tat")

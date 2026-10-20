@@ -7,6 +7,9 @@ on:
       days:
         description: "OMSGuru window: today plus N previous days (1 = yesterday + today)"
         default: ""
+      orders:
+        description: "Also add these AJIO orders, whatever their date (FN... / EX... / seller order nos, comma separated)"
+        default: ""
       chat_id:
         description: "Telegram chat for this run's report (empty = default chat)"
         default: ""
@@ -49,10 +52,15 @@ jobs:
       SHADOWFAX_TOKEN: ${{ secrets.SHADOWFAX_TOKEN }}
       AJIO_CHANNEL_IDS: ${{ vars.AJIO_CHANNEL_IDS }}
       TAT_LOOKBACK_DAYS: ${{ inputs.days || vars.TAT_LOOKBACK_DAYS }}
+      IN_ORDERS: ${{ inputs.orders }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
-      - run: bash scripts/github/ci_run.sh ajio-tat
+      - name: Run report
+        run: |
+          set --
+          if [ -n "$IN_ORDERS" ]; then set -- --orders "$IN_ORDERS"; fi
+          bash scripts/github/ci_run.sh ajio-tat "$@"
       - name: Upload run output (encrypted)
         if: always()
         uses: actions/upload-artifact@v4
