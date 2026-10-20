@@ -14,6 +14,9 @@
   sla        12 / 3 PM orders due, not RTS   python run.py sla --help
   labels     6 PM ERP labels vs OMSGuru      python run.py labels --help
   stock      10 AM SKUs selling, running out python run.py stock --help
+  evening    8 PM summary of the day        python run.py evening --help
+  weekly     Monday business review         python run.py weekly --help
+  deadstock  monthly dead / slow stock      python run.py deadstock --help
 """
 import importlib
 import sys
@@ -24,7 +27,8 @@ BOTS = {"sale": "bindal.sale.pipeline", "vms": "bindal.vms.pipeline",
         "ajio-ads": "bindal.ajio_ads.pipeline", "inv-push": "bindal.inv_push.pipeline",
         "agent-watch": "bindal.agent.watch", "morning": "bindal.morning.pipeline",
         "sla": "bindal.sla.pipeline", "labels": "bindal.labels.pipeline",
-        "stock": "bindal.stock.pipeline"}
+        "stock": "bindal.stock.pipeline", "evening": "bindal.evening.pipeline",
+        "weekly": "bindal.weekly.pipeline", "deadstock": "bindal.deadstock.pipeline"}
 
 
 def main(argv: list[str]) -> int:

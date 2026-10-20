@@ -12,6 +12,7 @@ from datetime import date, timedelta
 
 from ..core import telegram
 from ..core.app import run_bot
+from ..core.config import num
 from ..portals.omsguru import OmsGuruClient
 from ..sale.oms_sales import units_by_channel
 from ..sale.pipeline import fbf_source, sjit_source
@@ -76,6 +77,22 @@ def table(gross: dict, canc: dict, day: date, before: date) -> str:
     return "<pre>" + telegram.esc("\n".join(out)) + "</pre>" + f"\nCancelled yesterday: <b>{tot_cancel}</b>{pct}"
 
 
+def drops(gross: dict, day: date, before: date) -> list[str]:
+    """Sudden-drop alerts: a channel that sold DROP_MIN_UNITS (20)+ units on the same weekday last
+    week and sold nothing yesterday, or fell by DROP_PCT (40) % or more."""
+    least, pct = num("DROP_MIN_UNITS", 20), num("DROP_PCT", 40)
+    out = []
+    for n in sorted(gross, key=lambda n: -gross[n].get(before, 0)):
+        now, prev = gross[n].get(day, 0), gross[n].get(before, 0)
+        if prev < least:
+            continue
+        if now == 0:
+            out.append(f"🔴 {n}: no sale yesterday ({prev} on {before:%a}) - check the listing / account")
+        elif (prev - now) * 100 >= pct * prev:
+            out.append(f"⚠️ {n}: down {round((prev - now) * 100 / prev)}% ({prev} → {now})")
+    return out
+
+
 def comment(text_table: str) -> str:
     from ..agent import llm
     try:
@@ -114,6 +131,9 @@ def run(args) -> int:
         notes.append(f"SJIT not read ({str(exc)[:60]})")
 
     body = table(gross, canc, day, before)
+    alerts = drops(gross, day, before)
+    if alerts:
+        body += "\n\n" + "\n".join(telegram.esc(a) for a in alerts)
     plain = body.replace("<pre>", "").replace("</pre>", "").replace("<b>", "").replace("</b>", "")
     note = comment(f"Yesterday {day:%a %d %b}, compared with {before:%a %d %b}:\n{plain}") if not args.no_comment else ""
     text = "\n".join([f"☀️ <b>Morning report · {day:%a %d %b}</b>",

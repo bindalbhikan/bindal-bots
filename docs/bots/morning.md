@@ -15,4 +15,6 @@ against the same weekday a week before, with the change in %, the total and yest
   SJIT report asked for at 7 AM is waited for 5 minutes at most (`SJIT_WAIT_MINUTES`), else noted.
 * 2-3 lines on the numbers in English from the agent's free model (Workers AI, `bindal/agent/llm.py`);
   left out when the model is not available.
+* **Sudden drops** (plan E5): a channel that sold `DROP_MIN_UNITS` (20)+ units on last week's
+  same day and sold nothing yesterday (🔴, check the listing / account) or fell `DROP_PCT` (40) %+ (⚠️).
 * Returns are not in it: the sale report's RETURN is typed by hand.

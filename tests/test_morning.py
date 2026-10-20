@@ -24,3 +24,11 @@ def test_table_orders_lines_and_totals():
     assert not any(l.startswith("Snapdeal") for l in lines)                          # 0 both days: left out
     assert lines[-1].split() == ["Total", "353", "756", "-53%"]
     assert "Cancelled yesterday: <b>33</b> (9%)" in t
+
+
+def test_drops():
+    d, b = date(2026, 10, 19), date(2026, 10, 12)
+    gross = {"Flipkart": {d: 223, b: 557}, "Ajio": {d: 128, b: 124}, "Amazon": {d: 0, b: 30},
+             "Nykaa": {d: 1, b: 9}}
+    assert m.drops(gross, d, b) == ["⚠️ Flipkart: down 60% (557 → 223)",
+                                     "🔴 Amazon: no sale yesterday (30 on Mon) - check the listing / account"]
