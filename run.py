@@ -19,6 +19,7 @@
   weekly     Monday business review         python run.py weekly --help
   deadstock  monthly dead / slow stock      python run.py deadstock --help
   listings   11:30 AM listing health        python run.py listings --help
+  myntra-tat 6:30 PM Myntra courier pickups   python run.py myntra-tat --help
 """
 import importlib
 import sys
@@ -31,7 +32,7 @@ BOTS = {"sale": "bindal.sale.pipeline", "vms": "bindal.vms.pipeline",
         "sla": "bindal.sla.pipeline", "labels": "bindal.labels.pipeline",
         "stock": "bindal.stock.pipeline", "evening": "bindal.evening.pipeline",
         "weekly": "bindal.weekly.pipeline", "deadstock": "bindal.deadstock.pipeline",
-        "listings": "bindal.listings.pipeline"}
+        "listings": "bindal.listings.pipeline", "myntra-tat": "bindal.myntra_tat.pipeline"}
 
 
 def main(argv: list[str]) -> int:
