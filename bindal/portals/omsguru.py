@@ -15,7 +15,7 @@ import logging
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import quote
 
 import pandas as pd
@@ -29,7 +29,12 @@ log = logging.getLogger(__name__)
 BASE_URL = "https://client.omsguru.com"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36")
-MAX_PAGES = 50                 # 300 orders per list page -> 15,000 orders max per window
+MAX_PAGES = 50                 # 300 orders per list page
+# The order list stops after about 10 pages (~3,000 orders, newest first) whatever the filter, so a
+# long window is listed in pieces of LIST_DAYS days, and a piece that comes back near the limit
+# is split in two.
+LIST_DAYS = 7
+LIST_CAP = 2500
 VIEW_ID = re.compile(r"/orders/view/(\d+)")
 
 # Item statuses OMSGuru uses (from the list page's status filter), longest first so
@@ -176,7 +181,26 @@ class OmsGuruClient:
         return list(self.list_orders(start, end, channel_ids))
 
     def list_orders(self, start: datetime, end: datetime, channel_ids: list[str]) -> dict[str, str]:
-        """Internal order id (orders/view/<id>) -> AJIO channel order id, for the window."""
+        """Internal order id (orders/view/<id>) -> AJIO channel order id, for the window, listed in
+        pieces of LIST_DAYS days (the list itself stops at ~3,000 orders)."""
+        ids: dict[str, str] = {}
+        a = start
+        while a < end:
+            b = min(a + timedelta(days=LIST_DAYS), end)
+            ids.update(self._list_piece(a, b, channel_ids))
+            a = b
+        return ids
+
+    def _list_piece(self, start: datetime, end: datetime, channel_ids: list[str]) -> dict[str, str]:
+        ids = self._list_window(start, end, channel_ids)
+        if len(ids) >= LIST_CAP and end - start > timedelta(hours=12):
+            mid = start + (end - start) / 2
+            log.info("%d orders %s..%s, near the list limit: listed in two halves", len(ids), start, end)
+            ids.update(self._list_piece(start, mid, channel_ids))
+            ids.update(self._list_piece(mid, end, channel_ids))
+        return ids
+
+    def _list_window(self, start: datetime, end: datetime, channel_ids: list[str]) -> dict[str, str]:
         flt = self.order_filter(start, end, channel_ids)
         ids: dict[str, str] = {}
         for page in range(1, MAX_PAGES + 1):
