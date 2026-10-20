@@ -368,6 +368,78 @@ def pickup_pending_messages(df, now=None) -> list[str]:
     return msgs
 
 
+SCORE_COMMENT = """You are the e-commerce manager of Bindal Exports, an AJIO seller. Below is the courier
+pickup scorecard of the last 7 order days. Write 2 short lines for the owner in plain English: which
+courier is the problem and how bad, and whether the delay is on our side (processing late) or the
+courier's (pickup late). Numbers exact, no markdown, no greeting; say only what the numbers show."""
+
+
+def courier_scorecard(df: pd.DataFrame, now: pd.Timestamp | None = None) -> str:
+    """Third Telegram message: per courier, orders of the last COURIER_DAYS (7) complete order
+    days, pickups on time / late / overdue and the on-time %; who was late on the last day's NOT
+    CORRECT orders (our processing or the courier's pickup); and an alert for a courier under
+    COURIER_ALERT_PCT (70) % on time COURIER_ALERT_DAYS (3) order days in a row. "" when no orders.
+
+    A day is complete when every deadline of its orders has passed: an order of day D is due by
+    D + 1 (10:10 rule), so at the 5:30 PM run the last complete day is the day before yesterday."""
+    now = now or pd.Timestamp.now()
+    yday = now.normalize() - pd.Timedelta(days=2)       # the last complete order day
+    first = yday - pd.Timedelta(days=num("COURIER_DAYS", 7) - 1)
+    live = df[df["Pickup Status"] != "Cancelled"].copy()
+    live["_day"] = live["Order Time"].dt.normalize()
+    live = live[(live["_day"] >= first) & (live["_day"] <= yday)]
+    if live.empty:
+        return ""
+    live["_on"] = live["Pickup Status"] == "On Time"
+    live["_late"] = (live["Pickup Status"] == "Late") | pickup_pending_mask(live, now)
+    live["_c"] = live["Courier"].fillna("UNKNOWN").map(short_courier)
+
+    def pct(g) -> int | None:
+        n = int(g["_on"].sum() + g["_late"].sum())
+        return round(100 * g["_on"].sum() / n) if n else None
+
+    rows, alerts = [], []
+    days = [first + pd.Timedelta(days=i) for i in range((yday - first).days + 1)]
+    limit, run_len = num("COURIER_ALERT_PCT", 70), int(num("COURIER_ALERT_DAYS", 3))
+    for courier, g in sorted(live.groupby("_c"), key=lambda kv: -len(kv[1])):
+        y = pct(g[g["_day"] == yday])
+        rows.append(f"{courier[:7]:<7}{len(g):>5}{int(g['_late'].sum()):>5}"
+                    f"{(str(pct(g)) + '%') if pct(g) is not None else '-':>6}{(str(y) + '%') if y is not None else '-':>6}")
+        streak = []
+        for d in reversed(days):
+            gd = g[g["_day"] == d]
+            p = pct(gd)
+            if p is None or len(gd) < 5 or p >= limit:
+                break
+            streak.append(p)
+        if len(streak) >= run_len:
+            alerts.append(f"⚠️ {courier}: pickup on time under {limit:.0f}% for {len(streak)} days in a row "
+                          f"({', '.join(f'{p}%' for p in reversed(streak))})")
+    tot = pct(live)
+    table = [f"{'Courier':<7}{'Ord':>5}{'Late':>5}{'OnT%':>6}{format(yday, '%d%b'):>6}", *rows,
+             f"{'Total':<7}{len(live):>5}{int(live['_late'].sum()):>5}{(str(tot) + '%') if tot is not None else '-':>6}"]
+    bad = live[(live["_day"] == yday) & (live["TAT Result"] == "NOT CORRECT")]
+    ours = int((bad["Process Status"] != "On Time").sum())
+    lines = [f"🚚 <b>AJIO Courier Pickup · {first:%d %b} - {yday:%d %b}</b>",
+             "<i>order days whose deadlines have all passed</i>",
+             "<pre>" + telegram.esc("\n".join(table)) + "</pre>",
+             f"NOT CORRECT on {yday:%d %b}: <b>{len(bad)}</b> · our side (processing late) {ours} · "
+             f"courier side (pickup late) {len(bad) - ours}",
+             *alerts,
+             "<i>Late = picked after the deadline or still waiting past it; OnT% = on time / (on time + late); "
+             "picked with no time known is left out</i>"]
+    try:
+        from ..agent import llm
+        plain = "\n".join(table) + f"\nNOT CORRECT on {yday:%d %b}: {len(bad)}, ours {ours}, courier {len(bad) - ours}\n" + "\n".join(alerts)
+        note = (llm.chat([{"role": "system", "content": SCORE_COMMENT}, {"role": "user", "content": plain}],
+                         max_tokens=1200)["choices"][0]["message"].get("content") or "").strip()
+        if note:
+            lines += ["", "🧠 " + telegram.esc(note)]
+    except Exception as exc:  # noqa: BLE001 - the scorecard goes out without the lines
+        log.warning("No scorecard comment: %s", exc)
+    return "\n".join(lines)
+
+
 def dashboard_data(df: pd.DataFrame) -> dict:
     """Day-wise TAT for the last 45 order days, the month's courier table, and every AWB
     still waiting for pickup."""
@@ -501,10 +573,14 @@ def run(args) -> int:
         report += ("\n\n\u26a0\ufe0f <b>Notes</b>\n"
                    f"\u2022 {len(errors)} order page / tracking lookups failed; those orders keep their "
                    "last known status (list in the run's errors.log)")
+    score = courier_scorecard(df)
     if args.no_telegram:
         print(report)
+        print(score)
     else:
         telegram.send(report)
+        if score:
+            telegram.send(score)
         for msg in pickup_pending_messages(df):
             telegram.send(msg)
     dashboard.publish("ajio_tat", {**dashboard_data(df), "lookup_errors": len(errors)})

@@ -28,4 +28,10 @@
   numbers (via the AJIO report, last 180 days), seller order numbers, invoices or AWBs.
 * The saved master is tested as a zip before upload (a local run from G: once uploaded a damaged
   file).
-* Telegram: TAT table + pickups pending.
+* Telegram: TAT table, then the **courier scorecard**, then pickups pending. The scorecard: per
+  courier, orders of the last 7 complete order days (every deadline passed, i.e. up to the day
+  before yesterday at the 5:30 PM run), late pickups (after the deadline or still waiting past it),
+  on-time % and the last day's %; that day's NOT CORRECT split into our side (processing late) and
+  the courier's (pickup late); an alert for a courier under `COURIER_ALERT_PCT` (70) % on time
+  `COURIER_ALERT_DAYS` (3) days in a row (days with 5+ orders); 2 lines from the agent's free
+  model (left out when it is not available).

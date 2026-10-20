@@ -58,3 +58,35 @@ def test_build_report_output_has_the_erp_columns_empty():
     new = pd.DataFrame({"Invoice No": ["I2"], "Order ID": ["2"], "AWB": ["A2"]})   # no ERP columns
     merged, stats = merge_master(old, new)
     assert list(merged.columns) == DATA_COLS and stats["new"] == 1
+
+
+def test_courier_scorecard_complete_days_and_streak(monkeypatch):
+    from bindal.agent import llm
+    from bindal.ajio_tat import pipeline as p
+    monkeypatch.setattr(llm, "chat", lambda *a, **k: (_ for _ in ()).throw(llm.LLMError("offline")))
+    now = pd.Timestamp("2026-10-20 17:30")
+    rows = []
+    for back in range(2, 9):                       # 18 Oct back to 12 Oct: complete days
+        day = now.normalize() - pd.Timedelta(days=back)
+        for i in range(10):                        # Bluedart 4 of 10 on time every day: a streak
+            rows.append({"Order Time": day + pd.Timedelta(hours=9), "Courier": "BLUEDART",
+                         "Dispatch Deadline": day + pd.Timedelta(hours=23, minutes=59),
+                         "Pickup Status": "On Time" if i < 4 else "Late", "Process Status": "On Time",
+                         "TAT Result": "CORRECT" if i < 4 else "NOT CORRECT"})
+        rows.append({"Order Time": day + pd.Timedelta(hours=9), "Courier": "SHADOWFAX",
+                     "Dispatch Deadline": day + pd.Timedelta(hours=23, minutes=59), "Pickup Status": "On Time",
+                     "Process Status": "Late", "TAT Result": "NOT CORRECT"})
+    yesterday = now.normalize() - pd.Timedelta(days=1)  # not complete yet: left out
+    rows.append({"Order Time": yesterday + pd.Timedelta(hours=11), "Courier": "BLUEDART",
+                 "Dispatch Deadline": now.normalize() + pd.Timedelta(hours=23, minutes=59),
+                 "Pickup Status": "Pending Pickup", "Process Status": "On Time", "TAT Result": "PENDING"})
+    df = pd.DataFrame(rows)
+    text = p.courier_scorecard(df, now)
+    assert "12 Oct - 18 Oct" in text
+    table = text.split("<pre>")[1].split("</pre>")[0].splitlines()
+    assert table[0].split()[-1] == "18Oct"
+    assert table[1].split() == ["BluDart", "70", "42", "40%", "40%"]
+    assert table[-1].split() == ["Total", "77", "42", "45%"]
+    assert "BluDart: pickup on time under 70% for 7 days in a row" in text
+    assert "NOT CORRECT on 18 Oct: <b>7</b> · our side (processing late) 1 · courier side (pickup late) 6" in text
+    assert "🧠" not in text                          # model offline: the scorecard still goes out
