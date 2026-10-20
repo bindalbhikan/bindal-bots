@@ -90,3 +90,20 @@ def test_files_and_sheet_summary(tmp_path, monkeypatch):
     s = tools.sheet_summary(run_id=1, path="ajio_tat/m.xlsx", group_by="TAT Result", month_of="Order Time")
     assert "3 rows" in s and "TAT Result=2" in s and "2026-06" in s and "(blank)" in s
     assert "no file" in tools.sheet_summary(run_id=1, path="../../secret.txt")
+
+
+def test_chat_markdown_to_telegram():
+    from bindal.agent import chat
+    text = chat.to_telegram("## Sales\n- **Flipkart:** 223 <units>\n  * MAIN 130")
+    assert text == "<b>Sales</b>\n• <b>Flipkart:</b> 223 &lt;units&gt;\n  • MAIN 130"
+
+
+def test_propose_action_checks_before_sending(monkeypatch):
+    from bindal.agent import chat
+    sent = []
+    monkeypatch.setattr(chat.requests, "post", lambda *a, **k: sent.append(k) or type("R", (), {"status_code": 200, "text": ""})())
+    assert chat.propose_action(action="rm -rf", summary="x").startswith("Error: unknown action")
+    assert chat.propose_action(action="ajiotat", summary="x", inputs="{bad").startswith("Error: inputs")
+    assert not sent
+    assert "NOT run yet" in chat.propose_action(action="ajiotat", summary="add 2 orders", inputs='{"orders": "FN1,FN2"}')
+    assert sent[0]["json"]["action"] == "ajiotat" and sent[0]["json"]["inputs"] == {"orders": "FN1,FN2"}

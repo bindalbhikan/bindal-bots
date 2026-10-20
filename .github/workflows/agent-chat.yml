@@ -1,0 +1,58 @@
+name: Agent chat
+
+on:
+  # Started by the Telegram worker for a plain-text message in an allowed chat (worker askAgent).
+  workflow_dispatch:
+    inputs:
+      text:
+        description: "The owner's message"
+        required: true
+      chat_id:
+        description: "Telegram chat to answer in"
+        required: true
+      reply_to:
+        description: "Telegram message id answered"
+        default: ""
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: agent-chat-${{ inputs.chat_id }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      # the repo is public: this run's log is uploaded only encrypted (scripts/github/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+      GITHUB_TOKEN: ${{ github.token }}
+      OMSGURU_EMAIL: ${{ secrets.OMSGURU_EMAIL }}
+      OMSGURU_PASSWORD: ${{ secrets.OMSGURU_PASSWORD }}
+      OMSGURU_OTP: ${{ secrets.OMSGURU_OTP }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ inputs.chat_id }}
+      # the model (/api/ai) and the approvals (/api/approval) are in the Telegram worker
+      DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
+      AGENT_MODEL: ${{ vars.AGENT_MODEL }}
+      # the message reaches the shell only as a variable, never pasted into the script
+      IN_TEXT: ${{ inputs.text }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Answer
+        run: bash scripts/github/ci_run.sh agent-chat --text "$IN_TEXT"
+      - name: Upload run output (encrypted)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-chat-${{ github.run_id }}
+          path: secure/
+          if-no-files-found: ignore
+          retention-days: 7

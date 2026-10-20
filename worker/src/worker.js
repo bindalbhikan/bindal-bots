@@ -255,6 +255,7 @@ export default {
     if (path === "/api/myntra-session") return saveMyntraSession(request, env);
     if (path === "/api/myntra-session/read") return readMyntraSession(request, env);
     if (path === "/api/ai") return runAI(request, env);
+    if (path === "/api/approval") return saveApproval(request, env);
     if (request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.WEBHOOK_SECRET) {
       return new Response("forbidden", { status: 403 });
     }
@@ -275,7 +276,13 @@ export default {
     let text = msg?.text?.trim();
     if (text === KEYBOARD_MENU) text = "/menu";
     if (text === KEYBOARD_STATUS) text = "/status";
-    if (!text || !text.startsWith("/")) return new Response("ok");
+    if (!text) return new Response("ok");
+    if (!text.startsWith("/")) {
+      // plain text: a question or a request for the ops agent (bindal/agent/chat.py)
+      if (!allowedChat(env, msg.chat.id)) return new Response("ok");
+      ctx.waitUntil(askAgent(env, msg.chat.id, msg.message_id, text));
+      return new Response("ok");
+    }
     if (!allowedChat(env, msg.chat.id)) {
       console.log(`ignored ${text} from chat ${msg.chat.id} (${msg.chat.type} ${msg.chat.title || ""}) user ${msg.from?.id} ${msg.from?.first_name || ""}`);
       return new Response("ok");
@@ -373,6 +380,95 @@ async function saveMyntraSession(request, env) {
   return new Response("stored");
 }
 
+// ------------------------------------------------------------------ the ops agent
+// Plain text in an allowed chat goes to the agent-chat workflow (bindal/agent/chat.py), which
+// answers in the same chat. The agent can only read; anything it wants done it proposes with
+// POST /api/approval, and only an Approve tap here starts it - one of AGENT_ACTIONS, with only
+// the inputs listed there.
+const AGENT_ACTIONS = {
+  sale: { workflow: "sale.yml", inputs: ["from", "to", "today"] },
+  vms: { workflow: "vms.yml", inputs: ["from", "to"] },
+  ajiotat: { workflow: "ajio-tat.yml", inputs: ["days", "orders"] },
+  ajiospf: { workflow: "ajio-spf.yml", inputs: ["dry_run"] },
+  myntraspf: { workflow: "myntra-spf.yml", inputs: [] },
+  invpush: { workflow: "inv-push.yml", inputs: ["dry_run"] },
+  morning: { workflow: "morning.yml", inputs: ["day"] },
+  sla: { workflow: "sla.yml", inputs: [] },
+  labels: { workflow: "labels.yml", inputs: [] },
+  stock: { workflow: "stock.yml", inputs: [] },
+  evening: { workflow: "evening.yml", inputs: [] },
+  weekly: { workflow: "weekly.yml", inputs: [] },
+  deadstock: { workflow: "deadstock.yml", inputs: [] },
+  listings: { workflow: "listings.yml", inputs: [] },
+};
+const APPROVAL_HOURS = 24;
+
+async function askAgent(env, chatId, messageId, text) {
+  try {
+    const res = await github(env, `/repos/${OWNER}/${REPO}/actions/workflows/agent-chat.yml/dispatches`, {
+      method: "POST",
+      body: JSON.stringify({ ref: "main", inputs: { text: text.slice(0, 1500), chat_id: String(chatId),
+                                                    reply_to: String(messageId) } }),
+    });
+    if (res.status !== 204) throw new Error(`GitHub said ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    await sendMessage(env, chatId, "🤖 On it… (about 1-2 minutes)", messageId);
+  } catch (e) {
+    await sendMessage(env, chatId, `❌ <b>The agent did not start</b>\n<code>${esc(e.message)}</code>`, messageId);
+  }
+}
+
+async function saveApproval(request, env) {
+  if (!authorised(request, env)) return new Response("forbidden", { status: 403 });
+  let req;
+  try {
+    req = JSON.parse(await request.text());
+  } catch {
+    return new Response("not JSON", { status: 400 });
+  }
+  const action = AGENT_ACTIONS[req.action];
+  if (!action) return Response.json({ error: `unknown action ${req.action}` }, { status: 400 });
+  const inputs = {};
+  for (const [k, v] of Object.entries(req.inputs || {})) {
+    if (!action.inputs.includes(k)) return Response.json({ error: `input ${k} not allowed for ${req.action}` }, { status: 400 });
+    inputs[k] = String(v).slice(0, 1000);
+  }
+  const chat = String(req.chat_id || "");
+  if (!allowedChat(env, chat)) return Response.json({ error: "chat not allowed" }, { status: 400 });
+  const id = crypto.randomUUID().slice(0, 12);
+  await env.DASH.put(`approval:${id}`, JSON.stringify({ action: req.action, inputs, chat }),
+                     { expirationTtl: APPROVAL_HOURS * 3600 });
+  const args = Object.entries(inputs).map(([k, v]) => `${k} = ${v}`).join("\n") || "(no inputs)";
+  await sendMessage(env, chat,
+    `🙋 <b>Approve this?</b>\n\n${esc(String(req.summary || req.action).slice(0, 600))}\n\n` +
+    `<b>Run:</b> ${esc(action.workflow)}\n<code>${esc(args)}</code>\n\n<i>Expires in ${APPROVAL_HOURS} hours.</i>`,
+    undefined, keyboard([[["✅ Approve", `ap:${id}`], ["✖️ Reject", `rj:${id}`]]]));
+  return Response.json({ id });
+}
+
+async function decideApproval(env, cb, data) {
+  const id = data.slice(3);
+  const key = `approval:${id}`;
+  const saved = await env.DASH.get(key, "json");
+  const edit = (text) => telegram(env, "editMessageText", { chat_id: cb.message.chat.id, message_id: cb.message.message_id,
+                                                           text, parse_mode: "HTML", disable_web_page_preview: true });
+  if (!saved) {
+    await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id, text: "Expired or already decided" });
+    return edit(`${cb.message.text ? esc(cb.message.text) : ""}\n\n⌛ <i>Expired or already decided.</i>`);
+  }
+  await env.DASH.delete(key);                     // one tap decides it, a second does nothing
+  const who = esc(cb.from?.first_name || "someone");
+  if (data.startsWith("rj:")) {
+    await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id, text: "Rejected" });
+    return edit(`${esc(cb.message.text || "")}\n\n✖️ <b>Rejected</b> by ${who}.`);
+  }
+  const action = AGENT_ACTIONS[saved.action];
+  const res = await dispatch(env, action, saved.inputs);
+  await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id, text: res.status === 204 ? "Started" : "Failed" });
+  return edit(`${esc(cb.message.text || "")}\n\n` + (res.status === 204
+    ? `✅ <b>Approved</b> by ${who}: ${esc(action.workflow)} started.`
+    : `❌ Approved by ${who}, but GitHub said ${res.status}: ${esc((await res.text()).slice(0, 200))}`));
+}
+
 // Workers AI for the ops agent (bindal/agent): one chat-completions call (OpenAI shape: messages,
 // tools, tool_calls) on the account's free daily allocation (10,000 neurons). Same DASHBOARD_TOKEN;
 // only these models, which the Workers Free plan serves with tool calling (20 Oct 2026).
@@ -467,6 +563,7 @@ async function handleTap(env, cb) {
     return show("⚠️ <b>AJIO SPF · LIVE</b>\n\nRaises tickets and posts replies on AJIO.\nStart it?",
                 [[["✅ Yes, start", `r:${data.slice(2)}`], ["✖️ Cancel", "m:spf"]]]);
   }
+  if (data.startsWith("ap:") || data.startsWith("rj:")) return decideApproval(env, cb, data);
   if (data.startsWith("r:")) {
     await telegram(env, "answerCallbackQuery", { callback_query_id: cb.id, text: "Starting…" });
     await show(SCREENS.main.title, SCREENS.main.rows);   // menu stays ready for the next tap
