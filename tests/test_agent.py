@@ -6,8 +6,8 @@ from bindal.agent import llm, tools, watch
 def test_verdict_shapes():
     assert watch.verdict("STATUS: OK") == ("OK", "")
     assert watch.verdict("**STATUS: OK**")[0] == "OK"
-    status, msg = watch.verdict("STATUS: ALERT\nRun fail hua, kaaran: login")
-    assert status == "ALERT" and msg == "Run fail hua, kaaran: login"
+    status, msg = watch.verdict("STATUS: ALERT\nThe run failed. Cause: login")
+    assert status == "ALERT" and msg == "The run failed. Cause: login"
     assert watch.verdict("I could not decide")[0] == "ALERT"     # unknown shape is never silent
     assert watch.verdict("")[0] == "ALERT"
 

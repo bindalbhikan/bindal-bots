@@ -14,7 +14,7 @@ only when it did not succeed. By hand: run the workflow with a run id.
 * Otherwise the model reads the run with read-only tools (`bindal/agent/tools.py`): the decrypted
   run.log (grep / tail), the files the run wrote (xlsx: rows, filled columns, counts per month or
   status), earlier runs of the workflow. The bot's own doc in this folder is its background.
-* Answer STATUS: OK = nothing is sent. STATUS: ALERT = a short Hinglish Telegram message: what
+* Answer STATUS: OK = nothing is sent. STATUS: ALERT = a short English Telegram message: what
   happened, the cause, what it affected, the suggested next step, with the run's link.
 * Model unreachable (free allocation used up for the day, model down): a plain alert with the
   run's ERROR lines instead.

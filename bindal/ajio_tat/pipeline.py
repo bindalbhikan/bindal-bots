@@ -324,9 +324,9 @@ def telegram_report(df):
     month_start = today.replace(day=1)
     lines += _summary_block(live[(order_day >= month_start) & (order_day <= today)],
                             f"🗓 {today:%B} 1-{today.day}", now)
-    lines += ["", "<i>Done = pickup ho gaya",
-              "Pend = pickup nahi hua, TAT nikal gaya",
-              "Due = pickup nahi hua, TAT baaki",
+    lines += ["", "<i>Done = picked up",
+              "Pend = not picked up, TAT passed",
+              "Due = not picked up, still within TAT",
               "Proc = processing pending</i>"]
     return "\n".join(lines)
 
@@ -353,7 +353,7 @@ def pickup_pending_messages(df, now=None) -> list[str]:
         part = rows[i:i + per_msg]
         first, last = i == 0, i + per_msg >= len(rows)
         head = ([f"📮 <b>Pickup Pending · {len(pend)} AWB</b>",
-                 f"🔴 Over (TAT nikal gaya) {n_over} · 🟡 Due {len(pend) - n_over}",
+                 f"🔴 Over (TAT passed) {n_over} · 🟡 Due {len(pend) - n_over}",
                  "",
                  f"<b>Subject:</b> Pickup Pending - POB ID {pob} - {len(pend)} shipments",
                  "",

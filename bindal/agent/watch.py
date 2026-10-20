@@ -50,8 +50,8 @@ Answer with exactly this shape, nothing before it:
 STATUS: OK      (nothing for the owner to do)
 or
 STATUS: ALERT   (the owner should know)
-then, for ALERT only, a short message for the owner in simple Hinglish (Roman script, e.g.
-"Run fail hua, kaaran: ..."), at most 8 lines: what happened, the cause, what was affected, and
+then, for ALERT only, a short message for the owner in plain English (e.g. "The run failed.
+Cause: ..."), at most 8 lines: what happened, the cause, what was affected, and
 the next step you suggest. Plain lines, no markdown, numbers exact."""
 
 
@@ -102,9 +102,9 @@ def check(info: dict, earlier: list[dict], why: list[str], errors: str, tail: st
 
 def plain_alert(info: dict, why: list[str], errors: str, reason: str) -> str:
     lines = [l for l in errors.splitlines()[1:] if re.search(ERROR_LINES, l)][-4:]
-    return "\n".join([f"Run mein gadbad: {'; '.join(why)}.",
+    return "\n".join([f"Problem in the run: {'; '.join(why)}.",
                       *[f"• {l[-180:]}" for l in lines],
-                      f"(AI se jaanch nahi ho saki: {reason[:150]})"])
+                      f"(Not checked by the AI: {reason[:150]})"])
 
 
 def run(args) -> int:

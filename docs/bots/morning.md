@@ -13,6 +13,6 @@ against the same weekday a week before, with the change in %, the total and yest
   Before Shipping.
 * Flipkart FBF from Seller Hub and Myntra SJIT from the partner portal, as in the sale report; the
   SJIT report asked for at 7 AM is waited for 5 minutes at most (`SJIT_WAIT_MINUTES`), else noted.
-* 2-3 lines on the numbers in Hinglish from the agent's free model (Workers AI, `bindal/agent/llm.py`);
+* 2-3 lines on the numbers in English from the agent's free model (Workers AI, `bindal/agent/llm.py`);
   left out when the model is not available.
 * Returns are not in it: the sale report's RETURN is typed by hand.

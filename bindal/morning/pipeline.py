@@ -27,8 +27,8 @@ ORDER = ["Myntra MAIN", "Myntra PPMP", "Myntra DBCC", "Myntra FMCC", "SJIT", "Aj
 
 COMMENT = """You are the e-commerce manager of Bindal Exports (women's apparel on Myntra, AJIO,
 Flipkart, Amazon, Meesho, Nykaa). Below is yesterday's sale in units per channel against the same
-weekday one week before, with cancelled units. Write 2 or 3 short lines for the owner in simple
-Hinglish (Roman script): the biggest change and on which channel, anything worrying (a channel at
+weekday one week before, with cancelled units. Write 2 or 3 short lines for the owner in plain
+English: the biggest change and on which channel, anything worrying (a channel at
 or near zero, cancels high), and one thing to check today. Numbers exact, no markdown, no greeting.
 Say only what the numbers show; do not guess causes you cannot see."""
 
@@ -63,17 +63,17 @@ def change(now: int, before: int) -> str:
 
 def table(gross: dict, canc: dict, day: date, before: date) -> str:
     lines = sorted(gross, key=lambda n: (ORDER.index(n) if n in ORDER else len(ORDER), n))
-    out = [f"{'Channel':<12}{'Kal':>5}{format(before, '%a'):>5}{'±':>6}"]
+    out = [f"{'Channel':<11}{format(day, '%d%b'):>6}{format(before, '%d%b'):>6}{'±':>6}"]
     tot_now = tot_before = tot_cancel = 0
     for n in lines:
         now, prev = gross[n].get(day, 0), gross[n].get(before, 0)
         if not now and not prev:
             continue
         tot_now, tot_before, tot_cancel = tot_now + now, tot_before + prev, tot_cancel + canc.get(n, {}).get(day, 0)
-        out.append(f"{n[:12]:<12}{now:>5}{prev:>5}{change(now, prev):>6}")
-    out.append(f"{'Total':<12}{tot_now:>5}{tot_before:>5}{change(tot_now, tot_before):>6}")
+        out.append(f"{n[:11]:<11}{now:>6}{prev:>6}{change(now, prev):>6}")
+    out.append(f"{'Total':<11}{tot_now:>6}{tot_before:>6}{change(tot_now, tot_before):>6}")
     pct = f" ({tot_cancel * 100 // tot_now}%)" if tot_now else ""
-    return "<pre>" + telegram.esc("\n".join(out)) + "</pre>" + f"\nCancel kal: <b>{tot_cancel}</b>{pct}"
+    return "<pre>" + telegram.esc("\n".join(out)) + "</pre>" + f"\nCancelled yesterday: <b>{tot_cancel}</b>{pct}"
 
 
 def comment(text_table: str) -> str:
@@ -99,7 +99,7 @@ def run(args) -> int:
         canc["FBF"] = {before: fc[before], day: fc[day]}
     except Exception as exc:  # noqa: BLE001 - the rest still goes out
         log.warning("FBF skipped: %s", exc)
-        notes.append(f"FBF nahi aaya ({str(exc)[:60]})")
+        notes.append(f"FBF not read ({str(exc)[:60]})")
     try:
         alerts: list[str] = []
         sg, sc, covered = sjit_source([before, day], notes, alerts)
@@ -107,17 +107,17 @@ def run(args) -> int:
             gross["SJIT"] = {before: sg[before], day: sg[day]}
             canc["SJIT"] = {before: sc[before], day: sc[day]}
         else:
-            notes.append("SJIT report kal ka abhi nahi aaya")
+            notes.append("SJIT report for yesterday not ready yet")
         notes += alerts
     except Exception as exc:  # noqa: BLE001
         log.warning("SJIT skipped: %s", exc)
-        notes.append(f"SJIT nahi aaya ({str(exc)[:60]})")
+        notes.append(f"SJIT not read ({str(exc)[:60]})")
 
     body = table(gross, canc, day, before)
     plain = body.replace("<pre>", "").replace("</pre>", "").replace("<b>", "").replace("</b>", "")
     note = comment(f"Yesterday {day:%a %d %b}, compared with {before:%a %d %b}:\n{plain}") if not args.no_comment else ""
-    text = "\n".join([f"☀️ <b>Subah ki report · {day:%a %d %b}</b>",
-                      f"<i>kal vs pichla {before:%a} ({before:%d %b}), units</i>", "", body,
+    text = "\n".join([f"☀️ <b>Morning report · {day:%a %d %b}</b>",
+                      f"<i>yesterday vs last {before:%a} ({before:%d %b}), units</i>", "", body,
                       *(["", "🧠 " + telegram.esc(note)] if note else []),
                       *(["", "⚠️ " + "\n⚠️ ".join(telegram.esc(n) for n in notes)] if notes else [])])
     log.info("Morning report: %s", {n: v.get(day, 0) for n, v in gross.items()})
