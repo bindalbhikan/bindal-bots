@@ -58,13 +58,33 @@ LIST_CAP = 2500
 CANCELLED = re.compile(r"^\s*(cancelled|cancelled before shipping|removed before shipping)\s*$", re.I)
 
 
-def _read_window(client: OmsGuruClient, start: datetime, end: datetime, wanted: set[date],
-                 max_pages: int) -> tuple[Counter, Counter, int]:
-    """(units per (day, channel id), cancelled units per (day, channel id), lines read) of one window."""
-    gross: Counter = Counter()
-    cancel: Counter = Counter()
-    flt = client.order_filter(start, end)  # every channel
-    rows = 0
+SLA_RE = re.compile(r"([A-Z][a-z]+ \d{1,2}, \d{4} \d{1,2}:\d{2}:\d{2} [AP]M)")
+
+
+def _row(tr) -> dict | None:
+    """One order list line: day, time, channel id, order id, units, status, SLA; None for others."""
+    tds = tr.find_all("td", recursive=False)
+    if len(tds) < 7:
+        return None
+    m = ORDER_DATE_RE.search(text_of(tds[2]))
+    if not m:
+        return {}
+    ordered = datetime.strptime(m.group(1), "%d/%b/%Y %I:%M %p")
+    ch = tr.select_one('a[href*="channel_companies/edit/"]')
+    order = re.search(r"OrderID\s+(\S+)", text_of(tds[1]))
+    sla = SLA_RE.search(text_of(tds[6]))
+    return {"day": ordered.date(), "ordered": ordered,
+            "channel": re.search(r"edit/(\d+)", ch["href"]).group(1) if ch else "",
+            "order": order.group(1) if order else "",
+            "qty": sum(int(q) for q in re.findall(r"Qty\s+(\d+)", text_of(tds[3]))) or 1,
+            "status": text_of(tds[4]),
+            "sla": datetime.strptime(sla.group(1), "%B %d, %Y %I:%M:%S %p") if sla else None}
+
+
+def _read_window(client: OmsGuruClient, start: datetime, end: datetime, max_pages: int) -> tuple[list[dict], int]:
+    """(order lines with an order date, lines read) of one window, every channel."""
+    flt = client.order_filter(start, end)
+    out, rows = [], 0
     for page in range(1, max_pages + 1):
         url = client.list_page_url(flt, page)
         soup = BeautifulSoup(client.get(url).text, "html.parser")
@@ -73,39 +93,27 @@ def _read_window(client: OmsGuruClient, start: datetime, end: datetime, wanted: 
             raise RuntimeError(f"Orders table not found on {url}")
         added = 0
         for tr in table.select("tbody > tr"):
-            tds = tr.find_all("td", recursive=False)
-            if len(tds) < 7:
+            r = _row(tr)
+            if r is None:
                 continue
             added += 1
-            m = ORDER_DATE_RE.search(text_of(tds[2]))
-            if not m:
-                continue
-            day = datetime.strptime(m.group(1), "%d/%b/%Y %I:%M %p").date()
-            if day not in wanted:
-                continue
-            ch = tr.select_one('a[href*="channel_companies/edit/"]')
-            chid = re.search(r"edit/(\d+)", ch["href"]).group(1) if ch else ""
-            qty = sum(int(q) for q in re.findall(r"Qty\s+(\d+)", text_of(tds[3]))) or 1
-            gross[(day, chid)] += qty
-            if CANCELLED.match(text_of(tds[4])):
-                cancel[(day, chid)] += qty
+            if r:
+                out.append(r)
         rows += added
         if added == 0 or not soup.select_one(f'a[href*="page:{page + 1}"]'):
             break
         time.sleep(client.delay)
-    return gross, cancel, rows
+    return out, rows
 
 
-def units_by_channel(client: OmsGuruClient, days: list[date], max_pages: int = 80):
-    """(Counter[(day, channel id)] of units, Counter[(day, channel id)] of cancelled units,
-    {channel id: name}) for the order dates in `days`, every warehouse. Each day is its own window
-    (the days need not follow each other); a window near the list's limit is split in two."""
-    gross: Counter = Counter()
-    cancel: Counter = Counter()
+def order_lines(client: OmsGuruClient, days: list[date], max_pages: int = 80) -> tuple[list[dict], dict[str, str]]:
+    """(every order list line ordered on one of `days`, {channel id: name}), every warehouse.
+    Each day is its own window (the days need not follow each other); a window near the list's
+    limit is read again in two halves."""
+    lines: list[dict] = []
     names: dict[str, str] = {}
     wanted = set(days)
-    warehouses = list(client.warehouses()) or [None]
-    for wh in warehouses:
+    for wh in list(client.warehouses()) or [None]:
         if wh:
             client.set_warehouse(wh)
         if not names:
@@ -115,16 +123,28 @@ def units_by_channel(client: OmsGuruClient, days: list[date], max_pages: int = 8
         rows = 0
         while todo:
             a, b = todo.pop(0)
-            g, c, n = _read_window(client, a, b, wanted, max_pages)
+            got, n = _read_window(client, a, b, max_pages)
             if n >= LIST_CAP and b - a > timedelta(hours=1):
                 mid = a + (b - a) / 2
                 log.info("%d lines %s..%s, near the list limit: read in two halves", n, a, b)
                 todo[:0] = [(a, mid), (mid, b)]
                 continue
-            gross.update(g)
-            cancel.update(c)
+            lines += [r for r in got if r["day"] in wanted]
             rows += n
         log.info("OMSGuru warehouse %s: %d order lines read", wh or "current", rows)
+    return lines, names
+
+
+def units_by_channel(client: OmsGuruClient, days: list[date], max_pages: int = 80):
+    """(Counter[(day, channel id)] of units, Counter[(day, channel id)] of cancelled units,
+    {channel id: name}) for the order dates in `days`, every warehouse."""
+    lines, names = order_lines(client, days, max_pages)
+    gross: Counter = Counter()
+    cancel: Counter = Counter()
+    for r in lines:
+        gross[(r["day"], r["channel"])] += r["qty"]
+        if CANCELLED.match(r["status"]):
+            cancel[(r["day"], r["channel"])] += r["qty"]
     return gross, cancel, names
 
 

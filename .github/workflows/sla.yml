@@ -1,0 +1,42 @@
+name: SLA warning
+
+on:
+  # 12 PM and 3 PM IST (06:30 / 09:30 UTC). GitHub's own schedule, not the Telegram bot's Cloudflare
+  # cron: its free plan's 5 triggers are all used.
+  schedule:
+    - cron: "30 6 * * *"
+    - cron: "30 9 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sla
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/github/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+      OMSGURU_EMAIL: ${{ secrets.OMSGURU_EMAIL }}
+      OMSGURU_PASSWORD: ${{ secrets.OMSGURU_PASSWORD }}
+      OMSGURU_OTP: ${{ secrets.OMSGURU_OTP }}
+      SLA_ORDER_DAYS: ${{ vars.SLA_ORDER_DAYS }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run warning
+        run: bash scripts/github/ci_run.sh sla
+      - name: Upload run output (encrypted)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sla-${{ github.run_id }}
+          path: secure/
+          if-no-files-found: ignore
+          retention-days: 7
