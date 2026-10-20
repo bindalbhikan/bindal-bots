@@ -49,6 +49,9 @@ NEXT_DAY_PICKUP = "Next Day Pickup"
 NEXT_DAY_AFTER = time(12, 0)
 OPEN_PICKUP = ("Pending Pickup", NEXT_DAY_PICKUP)
 CANCEL_ITEM_STATUSES = re.compile(r"cancel", re.I)
+# OMSGuru item statuses that mean the courier took the parcel. Old orders (a rebuild from months
+# back) have no courier history left and OMSGuru logs no pickup event, so these say "picked".
+PICKED_ITEM_STATUSES = re.compile(r"in transit|delivered|return|rto|rtv", re.I)
 # Courier summary statuses meaning the parcel has not left the warehouse yet.
 # PICKUP_FAILED: the courier came but did not take it. RETURN_PENDING: a scan with
 # return wording before pickup. Neither means the parcel left the warehouse.
@@ -291,7 +294,8 @@ def apply_status(df, as_of):
         if CANCEL_ITEM_STATUSES.search(str(r["OMS Item Status"])) or str(r["Courier Status"]) == "CANCELLED":
             return "Cancelled"
         # No pickup scan, but courier shows movement => it was picked, time unknown
-        if str(r["Courier Status"]) not in NOT_PICKED_COURIER_STATUSES:
+        if (str(r["Courier Status"]) not in NOT_PICKED_COURIER_STATUSES
+                or PICKED_ITEM_STATUSES.search(str(r["OMS Item Status"]))):
             return "Picked (Time N/A)"
         # Processed in today's second half: the courier collects it on tomorrow's pickup.
         ready = ready_time(r)
