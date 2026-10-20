@@ -9,6 +9,7 @@
   myntra-spf Myntra SPF master            python run.py myntra-spf --help
   ajio-ads   AJIO ads / TOT gap, monthly  python run.py ajio-ads --help
   inv-push   OMSGuru inventory push, 3-hourly  python run.py inv-push --help
+  agent-watch  Claude checks a finished run  python run.py agent-watch --help
 """
 import importlib
 import sys
@@ -16,7 +17,8 @@ import sys
 BOTS = {"sale": "bindal.sale.pipeline", "vms": "bindal.vms.pipeline",
         "ajio-tat": "bindal.ajio_tat.pipeline", "ajio-spf": "bindal.ajio_spf.pipeline",
         "returns": "bindal.return_analysis.pipeline", "myntra-spf": "bindal.myntra_spf.pipeline",
-        "ajio-ads": "bindal.ajio_ads.pipeline", "inv-push": "bindal.inv_push.pipeline"}
+        "ajio-ads": "bindal.ajio_ads.pipeline", "inv-push": "bindal.inv_push.pipeline",
+        "agent-watch": "bindal.agent.watch"}
 
 
 def main(argv: list[str]) -> int:

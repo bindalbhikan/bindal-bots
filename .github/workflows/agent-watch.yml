@@ -1,0 +1,52 @@
+name: Agent watch
+
+on:
+  # Claude checks every bot run as it finishes (bindal/agent/watch.py) and tells Telegram only
+  # when something is wrong. The inventory push (every 3 hours) is checked only when it failed.
+  workflow_run:
+    workflows: ["AJIO ads TOT gap", "AJIO SPF run", "AJIO TAT daily update", "OMSGuru inventory push",
+                "Myntra SPF master", "Return analysis", "Daily sale report", "Myntra VMS report"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "The bot run to check (its id is in the run's URL)"
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: agent-watch-${{ github.event.workflow_run.id || inputs.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.name != 'OMSGuru inventory push' || github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      # the repo is public: this run's log is uploaded only encrypted (scripts/github/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GITHUB_TOKEN: ${{ github.token }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      AGENT_EFFORT: ${{ vars.AGENT_EFFORT }}
+      WATCH_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Check the run
+        run: bash scripts/github/ci_run.sh agent-watch --run-id "$WATCH_RUN_ID"
+      - name: Upload run output (encrypted)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-watch-${{ github.run_id }}
+          path: secure/
+          if-no-files-found: ignore
+          retention-days: 14
