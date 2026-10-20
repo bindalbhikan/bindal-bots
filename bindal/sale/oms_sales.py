@@ -62,7 +62,7 @@ SLA_RE = re.compile(r"([A-Z][a-z]+ \d{1,2}, \d{4} \d{1,2}:\d{2}:\d{2} [AP]M)")
 
 
 def _row(tr) -> dict | None:
-    """One order list line: day, time, channel id, order id, units, status, SLA; None for others."""
+    """One order list line: day, time, channel id, order id, units, status, AWB, SLA; None for others."""
     tds = tr.find_all("td", recursive=False)
     if len(tds) < 7:
         return None
@@ -73,11 +73,12 @@ def _row(tr) -> dict | None:
     ch = tr.select_one('a[href*="channel_companies/edit/"]')
     order = re.search(r"OrderID\s+(\S+)", text_of(tds[1]))
     sla = SLA_RE.search(text_of(tds[6]))
+    awb = re.search(r"AWB\s+(\S+)", text_of(tds[5]))
     return {"day": ordered.date(), "ordered": ordered,
             "channel": re.search(r"edit/(\d+)", ch["href"]).group(1) if ch else "",
             "order": order.group(1) if order else "",
             "qty": sum(int(q) for q in re.findall(r"Qty\s+(\d+)", text_of(tds[3]))) or 1,
-            "status": text_of(tds[4]),
+            "status": text_of(tds[4]), "awb": awb.group(1).upper() if awb else "",
             "sla": datetime.strptime(sla.group(1), "%B %d, %Y %I:%M:%S %p") if sla else None}
 
 

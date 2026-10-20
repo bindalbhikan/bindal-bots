@@ -12,6 +12,7 @@
   agent-watch  the agent checks a finished run  python run.py agent-watch --help
   morning    9:30 AM sale vs last week     python run.py morning --help
   sla        12 / 3 PM orders due, not RTS   python run.py sla --help
+  labels     6 PM ERP labels vs OMSGuru      python run.py labels --help
 """
 import importlib
 import sys
@@ -21,7 +22,7 @@ BOTS = {"sale": "bindal.sale.pipeline", "vms": "bindal.vms.pipeline",
         "returns": "bindal.return_analysis.pipeline", "myntra-spf": "bindal.myntra_spf.pipeline",
         "ajio-ads": "bindal.ajio_ads.pipeline", "inv-push": "bindal.inv_push.pipeline",
         "agent-watch": "bindal.agent.watch", "morning": "bindal.morning.pipeline",
-        "sla": "bindal.sla.pipeline"}
+        "sla": "bindal.sla.pipeline", "labels": "bindal.labels.pipeline"}
 
 
 def main(argv: list[str]) -> int:
