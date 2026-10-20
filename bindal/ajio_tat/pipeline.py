@@ -28,14 +28,22 @@ XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 log = logging.getLogger("bindal.ajio_tat")
 
 
-def ajio_pickups(df, errors: list[str]):
-    """Pickup Time, where courier tracking gave none, from the AJIO Dropship order report's
-    "Pickup Timestamp" (matched on AWB, else seller invoice). Old orders need it: the couriers
-    keep no history after a few months and OMSGuru logs no pickup. Read 30 days at a time for
-    the order dates still missing a pickup; an AJIO failure is noted and the rest stands."""
+def _key(s):
+    return s.astype(str).str.strip().str.upper().str.replace(r"\.0$", "", regex=True)
+
+
+def ajio_report(df, errors: list[str]):
+    """From the AJIO Dropship order report, for the orders still without them:
+    Cust Order No (AJIO's FN... order number, matched on the seller order = Order ID) and
+    Pickup Time where courier tracking gave none ("Pickup Timestamp", matched on AWB, else seller
+    invoice). Old orders need the pickup: the couriers keep no history after a few months and
+    OMSGuru logs no pickup. Read 30 days at a time over the order dates missing either; an AJIO
+    failure is noted and the rest stands."""
     if not env("AJIO_USERNAME"):
         return df
-    want = df["Pickup Time"].isna() & df["Order Time"].notna() & df["AWB"].notna()
+    no_pick = df["Pickup Time"].isna() & df["AWB"].notna()
+    no_cust = df["Cust Order No"].isna()
+    want = (no_pick | no_cust) & df["Order Time"].notna()
     if not want.any():
         return df
     from ..portals.ajio import AjioClient
@@ -53,22 +61,29 @@ def ajio_pickups(df, errors: list[str]):
             a = b + timedelta(days=1)
     except Exception as exc:  # noqa: BLE001 - courier / OMSGuru values stand
         log.exception("AJIO order report not read")
-        errors.append(f"AJIO pickup times not read: {str(exc)[:100]}")
+        errors.append(f"AJIO order report not read: {str(exc)[:100]}")
     if not frames:
         return df
-    rep = pd.concat(frames)
+    rep = pd.concat(frames, ignore_index=True)
+    df = df.copy()
+
+    named = rep.dropna(subset=["Cust Order No"])
+    cust = named.groupby(_key(named["FWD Seller Order NO"]))["Cust Order No"].first()
+    cust_awb = named.groupby(_key(named["FWD AWB"]))["Cust Order No"].first()
+    got = _key(df["Order ID"]).map(cust).fillna(_key(df["AWB"]).map(cust_awb))
+    fill_cust = want & no_cust & got.notna()
+    df.loc[fill_cust, "Cust Order No"] = got[fill_cust]
+
     rep["ts"] = pd.to_datetime(rep["Pickup Timestamp"].astype(str).str.replace(" IST", "", regex=False),
                                format="%a %b %d %H:%M:%S %Y", errors="coerce")
-    rep = rep.dropna(subset=["ts"])
-    by_awb = rep.groupby(rep["FWD AWB"].astype(str).str.strip().str.upper())["ts"].min()
-    by_inv = rep.groupby(rep["Seller Invoice No"].astype(str).str.strip().str.upper())["ts"].min()
-    df = df.copy()
-    found = df["AWB"].astype(str).str.strip().str.upper().map(by_awb)
-    found = found.fillna(df["Invoice No"].astype(str).str.strip().str.upper().map(by_inv))
-    fill = want & found.notna()
+    picked = rep.dropna(subset=["ts"])
+    by_awb = picked.groupby(_key(picked["FWD AWB"]))["ts"].min()
+    by_inv = picked.groupby(_key(picked["Seller Invoice No"]))["ts"].min()
+    found = _key(df["AWB"]).map(by_awb).fillna(_key(df["Invoice No"]).map(by_inv))
+    fill = want & no_pick & found.notna()
     df.loc[fill, "Pickup Time"] = found[fill]
-    log.info("AJIO order report %s..%s: %d pickup times, %d filled in the master", first, last,
-             len(rep), int(fill.sum()))
+    log.info("AJIO order report %s..%s: %d lines, %d pickup times and %d Cust Order Nos filled",
+             first, last, len(rep), int(fill.sum()), int(fill_cust.sum()))
     return df
 
 
@@ -418,7 +433,7 @@ def run(args) -> int:
         as_of = max(as_of, ev["ts"].max())
     if old_as_of is not None and pd.notna(old_as_of):
         as_of = max(as_of, old_as_of)
-    merged = ajio_pickups(erp_labels(merged, start, errors), errors)
+    merged = ajio_report(erp_labels(merged, start, errors), errors)
     df = apply_status(merged, as_of)
     s = summarize(df)
     note = (f"OMSGuru {start:%d-%b} to {end - timedelta(days=1):%d-%b} ({len(o)} lines read) "
