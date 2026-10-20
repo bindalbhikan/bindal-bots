@@ -38,6 +38,8 @@ ACTIONS = {
     "weekly": "Weekly review now. no inputs",
     "deadstock": "Dead and slow stock report now. no inputs",
     "listings": "Listing health check now. no inputs",
+    "mis": "Monthly MIS and plan now (last month). no inputs",
+    "myntratat": "Myntra courier pickup scorecard now. no inputs",
 }
 
 RULES = f"""You are the operations agent of Bindal Exports Ltd, an apparel seller on Myntra (accounts

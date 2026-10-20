@@ -1,0 +1,54 @@
+name: Monthly MIS
+
+on:
+  # The 2nd of the month, 11 AM IST (05:30 UTC). GitHub's own schedule, not the Telegram bot's
+  # Cloudflare cron: its free plan's 5 triggers are all used.
+  schedule:
+    - cron: "30 5 2 * *"
+  workflow_dispatch:
+    inputs:
+      day:
+        description: "A day of the month after the one reported, YYYY-MM-DD (empty = today)"
+        default: ""
+
+concurrency:
+  group: mis
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60   # two months of OMSGuru order lines (~35,000 a month)
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/github/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+      OMSGURU_EMAIL: ${{ secrets.OMSGURU_EMAIL }}
+      OMSGURU_PASSWORD: ${{ secrets.OMSGURU_PASSWORD }}
+      OMSGURU_OTP: ${{ secrets.OMSGURU_OTP }}
+      # commission % and shipping per unit per channel, JSON (kept out of the public repo)
+      MIS_RATES: ${{ vars.MIS_RATES }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      # the agent's free model (/api/ai) is reached through the worker
+      DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
+      AGENT_MODEL: ${{ vars.AGENT_MODEL }}
+      IN_DAY: ${{ inputs.day }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Run MIS
+        run: |
+          set --
+          if [ -n "$IN_DAY" ]; then set -- --day "$IN_DAY"; fi
+          bash scripts/github/ci_run.sh mis "$@"
+      - name: Upload run output (encrypted)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mis-${{ github.run_id }}
+          path: secure/
+          if-no-files-found: ignore
+          retention-days: 30

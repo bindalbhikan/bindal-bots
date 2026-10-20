@@ -8,7 +8,7 @@ on:
                 "Myntra SPF master", "Return analysis", "Daily sale report", "Myntra VMS report",
                 "Morning report", "SLA warning", "Label check", "Stock-out alert",
                 "Evening summary", "Weekly review", "Dead stock report", "Listing health",
-                "Myntra courier scorecard"]
+                "Myntra courier scorecard", "Monthly MIS"]
     types: [completed]
   workflow_dispatch:
     inputs:

@@ -400,6 +400,8 @@ const AGENT_ACTIONS = {
   weekly: { workflow: "weekly.yml", inputs: [] },
   deadstock: { workflow: "deadstock.yml", inputs: [] },
   listings: { workflow: "listings.yml", inputs: [] },
+  mis: { workflow: "mis.yml", inputs: ["day"] },
+  myntratat: { workflow: "myntra-tat.yml", inputs: [] },
 };
 const APPROVAL_HOURS = 24;
 
