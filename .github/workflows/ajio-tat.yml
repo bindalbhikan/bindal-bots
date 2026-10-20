@@ -34,6 +34,9 @@ jobs:
       ERP_USERNAME: ${{ secrets.ERP_USERNAME }}
       ERP_PASSWORD: ${{ secrets.ERP_PASSWORD }}
       ERP_USER_TOKEN: ${{ secrets.ERP_USER_TOKEN }}
+      # AJIO Dropship order report: pickup times the couriers no longer give for old orders
+      AJIO_USERNAME: ${{ secrets.AJIO_USERNAME }}
+      AJIO_PASSWORD: ${{ secrets.AJIO_PASSWORD }}
       TAT_GOOGLE_SHEET_ID: ${{ secrets.TAT_GOOGLE_SHEET_ID }}
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       # new Drive files are created through the Apps Script relay (service accounts have no Drive storage)
