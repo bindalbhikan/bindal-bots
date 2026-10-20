@@ -1,19 +1,68 @@
 import pandas as pd
 
-from bindal.agent import tools, watch
+from bindal.agent import llm, tools, watch
 
 
 def test_verdict_shapes():
     assert watch.verdict("STATUS: OK") == ("OK", "")
+    assert watch.verdict("**STATUS: OK**")[0] == "OK"
     status, msg = watch.verdict("STATUS: ALERT\nRun fail hua, kaaran: login")
     assert status == "ALERT" and msg == "Run fail hua, kaaran: login"
     assert watch.verdict("I could not decide")[0] == "ALERT"     # unknown shape is never silent
     assert watch.verdict("")[0] == "ALERT"
 
 
-def test_cost():
-    assert watch.cost({"input": 1_000_000, "cache_write": 0, "cache_read": 0, "output": 0}) == 4.0
-    assert watch.cost({"input": 0, "cache_write": 0, "cache_read": 1_000_000, "output": 50_000}) == 1.2
+def test_tool_schema_from_docstring():
+    s = tools.run_log.schema["function"]
+    assert s["name"] == "run_log" and s["parameters"]["required"] == ["run_id"]
+    props = s["parameters"]["properties"]
+    assert props["run_id"]["type"] == "integer" and props["grep"]["type"] == "string"
+    assert "regex" in props["grep"]["description"]
+
+
+def test_tool_call_arguments(monkeypatch):
+    seen = {}
+
+    @llm.tool
+    def echo(a: int, b: str = "x") -> str:
+        """Echo.
+
+        Args:
+            a: a number.
+            b: a word.
+        """
+        seen.update(a=a, b=b)
+        return "done"
+
+    fns = {"echo": echo}
+    assert llm._run_tool(fns, {"function": {"name": "echo", "arguments": '{"a": 3}'}}) == "done" and seen["a"] == 3
+    assert llm._run_tool(fns, {"function": {"name": "echo", "arguments": '"{\\"a\\": 4}"'}}) == "done" and seen["a"] == 4
+    assert llm._run_tool(fns, {"function": {"name": "nope", "arguments": "{}"}}).startswith("Error")
+    assert llm._run_tool(fns, {"function": {"name": "echo", "arguments": "{}"}}).startswith("Error: TypeError")
+
+
+def test_agent_loop_runs_tools_then_answers(monkeypatch):
+    replies = iter([
+        {"choices": [{"message": {"content": "", "tool_calls": [
+            {"id": "c1", "function": {"name": "run_files", "arguments": '{"run_id": 1}'}}]}}],
+         "usage": {"prompt_tokens": 100, "completion_tokens": 10}},
+        {"choices": [{"message": {"content": "STATUS: OK"}}], "usage": {"prompt_tokens": 150, "completion_tokens": 5}},
+    ])
+    sent = []
+    monkeypatch.setattr(llm, "chat", lambda messages, tools=(), model=llm.MODEL, max_tokens=4000: (sent.append(list(messages)), next(replies))[1])
+    monkeypatch.setattr(tools, "_out", lambda run_id: __import__("pathlib").Path("."))
+    text, usage = llm.agent_loop("sys", "task", tools.READ_ONLY)
+    assert text == "STATUS: OK" and usage["steps"] == 2 and usage["input"] == 250
+    assert sent[1][-1]["role"] == "tool" and sent[1][-1]["tool_call_id"] == "c1"
+
+
+def test_unusual():
+    earlier = [{"id": i, "conclusion": "success", "minutes": 4.0} for i in range(2, 8)]
+    ok = {"id": 1, "conclusion": "success", "minutes": 5.0}
+    assert watch.unusual(ok, earlier, "300 lines in the log, 0 shown\nno line matches") == []
+    assert watch.unusual({**ok, "conclusion": "failure"}, earlier, "")[0] == "conclusion failure"
+    assert "minutes" in watch.unusual({**ok, "minutes": 40.0}, earlier, "")[0]
+    assert watch.unusual(ok, earlier, "300 lines in the log, 10 shown\nx ERROR y") == ["ERROR lines in its log"]
 
 
 def _run_dir(tmp_path, monkeypatch):

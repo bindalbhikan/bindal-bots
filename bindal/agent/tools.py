@@ -10,11 +10,10 @@ import re
 from pathlib import Path
 
 import pandas as pd
-from anthropic import beta_tool
-
 from . import github
+from .llm import tool
 
-MAX_CHARS = 12000
+MAX_CHARS = 8000          # every step sends the whole conversation again: keep results small
 
 
 def _cut(text: str) -> str:
@@ -28,7 +27,7 @@ def _out(run_id: int) -> Path:
     return path
 
 
-@beta_tool
+@tool
 def recent_runs(workflow_file: str, count: int = 10) -> str:
     """Recent runs of one bot workflow, newest first: id, conclusion, event, start, minutes, commit.
     Use it to compare a run with the ones before it (usual duration, how often it fails).
@@ -40,7 +39,7 @@ def recent_runs(workflow_file: str, count: int = 10) -> str:
     return json.dumps(github.runs(workflow_file, min(max(count, 1), 30)), default=str)
 
 
-@beta_tool
+@tool
 def run_log(run_id: int, grep: str = "", tail: int = 120) -> str:
     """The bot's own log of a run (output/run.log, decrypted). With grep: only the lines matching
     that regular expression (case-insensitive), with a line before and after; else the last lines.
@@ -64,7 +63,7 @@ def run_log(run_id: int, grep: str = "", tail: int = 120) -> str:
     return _cut(f"{len(lines)} lines in the log, last {min(n, len(lines))}:\n" + "\n".join(lines[-n:]))
 
 
-@beta_tool
+@tool
 def run_files(run_id: int) -> str:
     """The files the run wrote (its output/ folder): path and size. xlsx files can be read with
     sheet_summary.
@@ -78,7 +77,7 @@ def run_files(run_id: int) -> str:
     return _cut("\n".join(files) or "no files")
 
 
-@beta_tool
+@tool
 def sheet_summary(run_id: int, path: str, sheet: str = "", group_by: str = "", month_of: str = "") -> str:
     """Summary of one sheet of an xlsx the run wrote: its sheets, row count, every column with how
     many values are filled, the first rows. Optional counts: group_by = a column to count values

@@ -254,6 +254,7 @@ export default {
     if (path.startsWith("/api/push/")) return pushDashboard(request, env, path.slice("/api/push/".length));
     if (path === "/api/myntra-session") return saveMyntraSession(request, env);
     if (path === "/api/myntra-session/read") return readMyntraSession(request, env);
+    if (path === "/api/ai") return runAI(request, env);
     if (request.headers.get("X-Telegram-Bot-Api-Secret-Token") !== env.WEBHOOK_SECRET) {
       return new Response("forbidden", { status: 403 });
     }
@@ -370,6 +371,32 @@ async function saveMyntraSession(request, env) {
       `Cookies: ${data.cookies.length}\nLogin expires: ${esc(ends)}`);
   }
   return new Response("stored");
+}
+
+// Workers AI for the ops agent (bindal/agent): one chat-completions call (OpenAI shape: messages,
+// tools, tool_calls) on the account's free daily allocation (10,000 neurons). Same DASHBOARD_TOKEN;
+// only these models, which the Workers Free plan serves with tool calling (20 Oct 2026).
+const AI_MODELS = new Set(["@cf/openai/gpt-oss-120b", "@cf/qwen/qwen3.8-27b", "@cf/nvidia/nemotron-3-120b-a12b",
+                           "@cf/openai/gpt-oss-20b"]);
+
+async function runAI(request, env) {
+  if (!authorised(request, env)) return new Response("forbidden", { status: 403 });
+  const body = await request.text();
+  if (body.length > 1_500_000) return new Response("too large", { status: 413 });
+  let req;
+  try {
+    req = JSON.parse(body);
+  } catch {
+    return new Response("not JSON", { status: 400 });
+  }
+  const { model, ...input } = req;
+  if (!AI_MODELS.has(model)) return new Response("model not allowed", { status: 400 });
+  try {
+    return Response.json(await env.AI.run(model, { ...input, stream: false }));
+  } catch (e) {
+    // the free allocation used up, or the model failing: the caller reports it
+    return Response.json({ error: String(e && e.message || e) }, { status: 502 });
+  }
 }
 
 async function readMyntraSession(request, env) {

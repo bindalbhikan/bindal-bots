@@ -21,6 +21,10 @@ DASHBOARD_PAGE = "https://bindal-dashboard.bhikan-serein.workers.dev"
 
 # Latest numbers of each bot for the dashboard (worker/../dashboard reads the same namespace).
 # The bots POST them to /api/push/<key> with the DASHBOARD_TOKEN secret.
+# Workers AI (free daily allocation) for the ops agent: POST /api/ai with the DASHBOARD_TOKEN.
+[ai]
+binding = "AI"
+
 [[kv_namespaces]]
 binding = "DASH"
 id = "67db94fc82af438496705a09419c2ac3"

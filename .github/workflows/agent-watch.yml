@@ -1,7 +1,7 @@
 name: Agent watch
 
 on:
-  # Claude checks every bot run as it finishes (bindal/agent/watch.py) and tells Telegram only
+  # The agent (Cloudflare Workers AI, free allocation) checks every bot run as it finishes (bindal/agent/watch.py) and tells Telegram only
   # when something is wrong. The inventory push (every 3 hours) is checked only when it failed.
   workflow_run:
     workflows: ["AJIO ads TOT gap", "AJIO SPF run", "AJIO TAT daily update", "OMSGuru inventory push",
@@ -31,11 +31,13 @@ jobs:
       RUN_MODE: github-actions
       # the repo is public: this run's log is uploaded only encrypted (scripts/github/ci_run.sh)
       ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # the model runs in the Telegram worker (/api/ai), reached with the dashboard token
+      DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
+      AGENT_MODEL: ${{ vars.AGENT_MODEL }}
       GITHUB_TOKEN: ${{ github.token }}
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      AGENT_EFFORT: ${{ vars.AGENT_EFFORT }}
       WATCH_RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
     steps:
       - uses: actions/checkout@v4
