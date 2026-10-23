@@ -65,7 +65,8 @@ def _windows(today: date) -> dict[int, list[tuple[date, date]]]:
 
 def fetch_account(account: str, today: date, dest: Path, notes: list[str],
                   old_orders: list[tuple[date, date]] | None = None,
-                  ticketed: dict[str, set[str]] | None = None) -> None:
+                  ticketed: dict[str, set[str]] | None = None, cached: dict | None = None,
+                  details: dict | None = None) -> None:
     """The account's returns, delivery and order reports into dest. Different reports are asked
     for together; the same report again only after the cooldown. Jobs for the same dates are reused.
 
@@ -154,7 +155,7 @@ def fetch_account(account: str, today: date, dest: Path, notes: list[str],
         notes.append(f"{account}: older order reports still to fetch (next runs): {', '.join(left)}")
     if ticketed is not None:
         try:
-            ticketed[account] = tickets.portal_tickets(portal, account, dest.parent)
+            ticketed[account] = tickets.portal_tickets(portal, account, dest.parent, cached, details)
         except Exception as exc:  # noqa: BLE001 - no claims for this account then
             log.exception("%s SPF tickets not read", account)
             notes.append(f"{account} SPF tickets not read, no claims raised: {str(exc)[:80]}")
@@ -442,7 +443,7 @@ def oms_statuses(wanted: dict[tuple, dict], notes: list[str]) -> dict[tuple, str
 
 
 def raise_due_claims(work: Path, today: date, ticketed: dict[str, set[str]], oms: dict,
-                     notes: list[str]) -> list[str]:
+                     notes: list[str], details: dict | None = None) -> list[str]:
     """SPF claims due today per account (tickets.candidates), raised when MYNTRA_SPF_TICKETS=1,
     else only counted. Accounts whose portal tickets could not be read are skipped. The lines
     for the report; they also go to notes."""
@@ -466,7 +467,8 @@ def raise_due_claims(work: Path, today: date, ticketed: dict[str, set[str]], oms
         try:
             portal = myntra_portal(account) if live else None
             lines += tickets.raise_claims(portal, account, wanted, work / "input", live,
-                                          seller=mp.ACCOUNTS.get(account))
+                                          seller=mp.ACCOUNTS.get(account),
+                                          details=None if details is None else details.setdefault(account, []))
             if portal:
                 mp.save_to_worker(env, portal.cookies(), account)
         except Exception as exc:  # noqa: BLE001 - the other accounts still go
@@ -480,14 +482,16 @@ def raise_due_claims(work: Path, today: date, ticketed: dict[str, set[str]], oms
     return [line for line in lines if " raised (" in line]
 
 
-def run_engine(work: Path, oms: dict | None = None) -> None:
-    """The engine's main() inside the work folder, with OMSGuru results when given."""
+def run_engine(work: Path, oms: dict | None = None, details: dict | None = None) -> None:
+    """The engine's main() inside the work folder, with OMSGuru results when given and the
+    TICKETS sheet's rows (account -> rows, one per ticket id)."""
     import importlib
     os.environ["MYNTRA_SPF_DIR"] = str(work)
     from . import engine
     engine = importlib.reload(engine)             # picks up MYNTRA_SPF_DIR
     engine.backup = lambda: None                  # Drive keeps the versions
     engine.OMS_RESULTS = oms or {}
+    engine.TICKET_DETAILS = list({d["TICKET ID"]: d for rows in (details or {}).values() for d in rows}.values())
     # young in-transit returns stay off the sheets (parked on a hidden sheet until 60 days)
     argv, sys.argv = sys.argv, ["myntra_spf", "--in-transit", "n"]
     try:
@@ -526,7 +530,14 @@ def run(args) -> int:
         log.exception("Months of missing order amounts not worked out")
         old_orders = {}
     ticketed: dict[str, set[str]] = {}
-    tasks = {a: (fetch_account, (a, today, inp / a, notes, old_orders.get(a), ticketed)) for a in ACCOUNTS}
+    try:
+        cached = tickets.read_details(work / MASTER_NAME)
+    except Exception:  # noqa: BLE001 - every recent claim is read again then
+        log.exception("Previous TICKETS sheet not read")
+        cached = {}
+    details: dict[str, list[dict]] = {}
+    tasks = {a: (fetch_account, (a, today, inp / a, notes, old_orders.get(a), ticketed, cached, details))
+             for a in ACCOUNTS}
     with ThreadPoolExecutor(max_workers=len(tasks) + 1) as pool:
         futures = {name: pool.submit(fn, *a) for name, (fn, a) in tasks.items()}
         erp = pool.submit(fetch_erp, inp)
@@ -543,7 +554,7 @@ def run(args) -> int:
         notes.append(f"ERP GRN / dispatch not read: {str(exc)[:100]}")
 
     # 1) ERP (GRN) and the manual sheet: the engine's own run, in the work folder
-    run_engine(work)
+    run_engine(work, details=details)
     # 2) OMSGuru for the rows still without a final status, then the engine again with them
     try:
         since = today - timedelta(days=num("MYNTRA_SPF_OMS_DAYS", 180))
@@ -558,9 +569,13 @@ def run(args) -> int:
         notes.append(f"OMSGuru not checked: {str(exc)[:100]}")
         oms = {}
     # 3) SPF claims due today (policy timelines), raised on the portal; shown in the master at once
-    claims = raise_due_claims(work, today, ticketed, oms, notes)
+    claims = raise_due_claims(work, today, ticketed, oms, notes, details)
     if oms or claims:
-        run_engine(work, oms)
+        run_engine(work, oms, details)
+    waiting = {a: sum(d.get("NEEDS OUR REPLY") == "YES" for d in rows) for a, rows in details.items()}
+    if any(waiting.values()):
+        notes.insert(0, "SPF claims awaiting our response (TICKETS sheet): "
+                     + ", ".join(f"{a} {n}" for a, n in waiting.items() if n))
     out = output_dir("myntra_spf")
     shutil.copy2(work / MASTER_NAME, out / MASTER_NAME)
     if args.no_upload:

@@ -389,9 +389,11 @@ class MyntraPortal:
 
     # ------------------------------------------------------------ SPF claims (Support > Seller Protection Fund)
 
-    def spf_tickets(self, model: str = "PPMP", page_size: int = 500, tries: int = 3) -> list[dict]:
+    def spf_tickets(self, model: str = "PPMP", page_size: int = 500, tries: int = 3,
+                    since: datetime | None = None) -> list[dict]:
         """Every SPF ticket of the account, any status: ticketId, orderLineId, returnId,
-        issueCategory, status, createdOn (ISO, UTC).
+        issueCategory, status, createdOn, lastModifiedOn (ISO, UTC). since: only tickets
+        created from then (IST), as the portal's Claim Date Range filter.
 
         MAIN has 17,000+ tickets: 500 a page (the portal's 50 meant 340+ calls, and one call stuck
         for a minute on 23 Oct 2026 lost the whole list; 2,000 a page is refused). A page that
@@ -401,6 +403,9 @@ class MyntraPortal:
         while True:
             params = [("fetchAccio", "true"), ("modelType", model), ("page", page), ("pageSize", page_size),
                       *(("status", s) for s in SPF_STATUSES)]
+            if since:
+                params += [("startDate", f"{since:%Y-%m-%d %H:%M:%S}"),
+                           ("endDate", f"{datetime.now() + timedelta(days=1):%Y-%m-%d 23:59:59}")]
             for attempt in range(1, tries + 1):
                 try:
                     data = self._call("GET", f"{SPF_API}/v2/getTickets", params=params)
@@ -416,6 +421,19 @@ class MyntraPortal:
             if not rows or len(out) >= total:
                 return out
             page += 1
+
+    def spf_claim(self, ticket_id) -> dict:
+        """One claim as its portal page shows it: status, history (JSON text, status -> IST time),
+        validationReason / rejectReasonDescription, compensationAmount, utr, paymentInitiatedOn,
+        fwTicketId (the Seller Support ticket when the claim was taken up there)."""
+        data = self._call("GET", f"{SPF_API}/v2/fetchClaimByTicketId",
+                          params={"id": ticket_id, "fetchAccio": "true"}).get("data") or []
+        return data[0] if data else {}
+
+    def spf_comments(self, fw_ticket_id) -> list[dict]:
+        """The Seller Support replies of a claim's fwTicketId: comment (HTML), user, createdOn
+        (MM-DD-YYYY HH:MM:SS IST), newest first."""
+        return self._call("GET", f"{SPF_API}/getComments", params={"fwTicketId": fw_ticket_id}).get("data") or []
 
     def spf_bulk_claim(self, order_line_ids: list, category: str, description: str,
                        model: str = "PPMP", seller: int | None = None) -> int:

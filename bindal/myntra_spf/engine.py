@@ -2245,8 +2245,43 @@ def write_master(data):
         if data[name]:
             ws.autofilter(HEADER_ROW - 1, 0, last - 1, len(HEADERS) - 1)
     write_parked(wb, is_date)
+    write_ticket_details(wb, f)
     write_input_log(wb, f, log)
     wb.close()
+
+
+def write_ticket_details(wb, f):
+    """Bot only: the TICKETS sheet - every recent / open SPF claim of the three accounts as its
+    portal page shows it (status history, reason, payout, Seller Support's last reply), from
+    TICKET_DETAILS (bindal/myntra_spf/tickets.py). Claims waiting on our answer come first."""
+    from .tickets import DETAIL_COLS, DETAIL_SHEET
+    if not TICKET_DETAILS:
+        return
+    rows = sorted(TICKET_DETAILS, key=lambda d: (d.get('NEEDS OUR REPLY') != 'YES', str(d.get('ACCOUNT')),
+                                                 -int(str(d.get('TICKET ID') or 0) or 0)))
+    ws = wb.add_worksheet(DETAIL_SHEET)
+    hdr = wb.add_format({'bold': True, 'bg_color': '#1F4E78', 'font_color': '#FFFFFF', 'border': 1,
+                         'text_wrap': True, 'valign': 'vcenter'})
+    alert = wb.add_format({'bg_color': '#FFC7CE'})
+    widths = {'ACCOUNT': 8, 'TICKET ID': 11, 'ORDER LINE ID': 14, 'RETURN ID': 14, 'ORDER ID': 14,
+              'CATEGORY': 18, 'STATUS': 18, 'NEEDS OUR REPLY': 9, 'CREATED': 17, 'LAST UPDATED': 17,
+              'STATUS HISTORY': 40, 'REASON': 40, 'COMPENSATION': 12, 'UTR': 18, 'PAYMENT INITIATED': 17,
+              'DESCRIPTION': 30, 'SUPPORT TICKET': 12, 'REPLIES': 8, 'LAST REPLY BY': 16,
+              'LAST REPLY AT': 17, 'LAST REPLY': 70}
+    for i, h in enumerate(DETAIL_COLS):
+        ws.write(0, i, h, hdr)
+        ws.set_column(i, i, widths.get(h, 14))
+    for r, d in enumerate(rows, start=1):
+        for i, h in enumerate(DETAIL_COLS):
+            v = d.get(h)
+            if v not in (None, ''):
+                ws.write(r, i, v, alert if h == 'NEEDS OUR REPLY' else None)
+    ws.freeze_panes(1, 2)
+    ws.autofilter(0, 0, len(rows), len(DETAIL_COLS) - 1)
+
+
+# Bot only: the TICKETS sheet's rows, filled by bindal/myntra_spf/pipeline.py
+TICKET_DETAILS = []
 
 
 def write_parked(wb, is_date):

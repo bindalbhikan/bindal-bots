@@ -58,9 +58,10 @@ def test_claims_follow_the_policy_timelines():
     assert claim_of(dict(due, **{"RETURN POD": "YES"}), today, set()) is None
 
 
-def test_claims_are_raised_in_bulk_and_shown_as_bot_tickets(tmp_path):
+def test_claims_are_raised_in_bulk_with_their_real_ticket_ids(tmp_path, monkeypatch):
     from openpyxl import load_workbook
     from bindal.myntra_spf import tickets
+    monkeypatch.setenv("MYNTRA_SPF_RESOLVE_MINUTES", "0")
 
     class Portal:
         calls = []
@@ -69,12 +70,22 @@ def test_claims_are_raised_in_bulk_and_shown_as_bot_tickets(tmp_path):
             self.calls.append((list(ids), cat, seller))
             return 777
 
-    portal = Portal()
-    lines = tickets.raise_claims(portal, "DBCC", {tickets.DELAYED: ["11", "12"]}, tmp_path, True, seller=32207)
+        def spf_tickets(self, since=None, page_size=500):
+            assert since is not None
+            return [{"ticketId": 9900011, "orderLineId": 11, "issueCategory": tickets.DELAYED, "status": "OPEN",
+                     "createdOn": "2026-10-23T06:26:57.000Z", "lastModifiedOn": "2026-10-23T06:26:57.000Z"}]
+
+    portal, details = Portal(), []
+    lines = tickets.raise_claims(portal, "DBCC", {tickets.DELAYED: ["11", "12"]}, tmp_path, True, seller=32207,
+                                 details=details)
     assert portal.calls == [(["11", "12"], tickets.DELAYED, 32207)]
-    assert lines == ["DBCC Delayed Returns: 2 raised (job 777)"]
-    rows = list(load_workbook(tmp_path / "DBCC" / tickets.BOT_FILE).active.values)
-    assert rows[0][:2] == ("ticketId", "orderLineId") and rows[1][:2] == ("BOT JOB 777", "11")
+    assert lines == ["DBCC Delayed Returns: 2 raised (job 777)",
+                     "DBCC: 1 claims raised but no ticket id yet (BOT JOB, next run)"]
+    new = list(load_workbook(tmp_path / "DBCC" / tickets.NEW_FILE).active.values)
+    assert new[0][:2] == ("ticketId", "orderLineId") and new[1][:2] == (9900011, 11)
+    bot = list(load_workbook(tmp_path / "DBCC" / tickets.BOT_FILE).active.values)
+    assert [r[:2] for r in bot[1:]] == [("BOT JOB 777", "12")]
+    assert [(d["TICKET ID"], d["STATUS"], d["CREATED"]) for d in details] == [("9900011", "OPEN", "23-Oct-2026 11:56")]
     off = tickets.raise_claims(None, "MAIN", {tickets.RNR: ["5"]}, tmp_path, False)
     assert off == ["MAIN Return Not Received: 1 due (not raised: tickets off)"]
 
@@ -111,3 +122,36 @@ def test_accepted_spf_ticket_is_a_final_status():
     assert f'IF(OR({st}="ACCEPT",{st}="INVOICE_INITIATED",{st}="PAYMENT_COMPLETED"),"SPF Accepted",' in f
     assert f.count("(") == f.count(")")
     assert ("SPF ACCEPTED", "count", None, [("FINAL RETURN STATUS", "SPF Accepted")]) in engine.SUMMARY_COLS
+
+
+def test_ticket_details_rows_and_unchanged_tickets_are_not_read_again():
+    from bindal.myntra_spf import tickets
+    t = {"ticketId": 9508045, "orderLineId": 11309894985, "returnId": 100192640491, "orderId": 1,
+         "issueCategory": tickets.RNR, "status": "REJECT", "createdOn": "2099-09-30T11:58:04.000Z",
+         "lastModifiedOn": "2099-10-01T13:07:22.000Z"}
+    claim = {"status": "AWAITING_SELLER_RESPONSE", "history": '{"OPEN": "09-30-2099 17:28:03", "REJECT": "10-01-2099 18:37:21"}',
+             "validationReason": "Not_Eligible_ticket_raised_within_60_days_TAT", "fwTicketId": 55, "description": "Return Pending"}
+    comments = [{"comment": ": <div>Dear Sir,<br>We are <b>checking</b>.</div>", "user": "Ranu Gour", "createdOn": "10-02-2099 11:56:47"},
+                {"comment": "older", "user": "X", "createdOn": "10-01-2099 10:00:00"}]
+    row = tickets.detail_row("MAIN", t, claim, comments)
+    assert row["STATUS HISTORY"] == "OPEN 30-Sep 17:28 > REJECT 01-Oct 18:37"
+    assert row["REASON"] == "Not_Eligible_ticket_raised_within_60_days_TAT" and row["NEEDS OUR REPLY"] == "YES"
+    assert (row["REPLIES"], row["LAST REPLY BY"], row["LAST REPLY AT"]) == (2, "Ranu Gour", "02-Oct-2099 11:56")
+    assert row["LAST REPLY"] == "Dear Sir, We are checking ." and row["CREATED"] == "30-Sep-2099 17:28"
+
+    class Portal:
+        reads = 0
+
+        def spf_claim(self, tid):
+            Portal.reads += 1
+            return claim
+
+        def spf_comments(self, fw):
+            return comments
+
+    old = {"9508045": {**row, "REASON": "cached"}}
+    out = tickets.ticket_details(Portal(), "MAIN", [t], old)
+    assert Portal.reads == 0 and out[0]["REASON"] == "cached"          # LAST UPDATED unchanged
+    out = tickets.ticket_details(Portal(), "MAIN", [{**t, "lastModifiedOn": "2099-10-03T10:00:00.000Z"}], old)
+    assert Portal.reads == 1 and out[0]["REASON"].startswith("Not_Eligible")
+    assert tickets.ticket_details(Portal(), "MAIN", [{**t, "createdOn": "2020-01-01T00:00:00.000Z"}], {}) == []
