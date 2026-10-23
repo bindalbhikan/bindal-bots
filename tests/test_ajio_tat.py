@@ -90,3 +90,20 @@ def test_courier_scorecard_complete_days_and_streak(monkeypatch):
     assert "BluDart: pickup on time under 70% for 7 days in a row" in text
     assert "NOT CORRECT on 18 Oct: <b>7</b> · our side (processing late) 1 · courier side (pickup late) 6" in text
     assert "🧠" not in text                          # model offline: the scorecard still goes out
+
+
+def test_ajio_pickup_timestamp_replaces_the_courier_time(monkeypatch):
+    from bindal.ajio_tat import pipeline as p
+    monkeypatch.setenv("AJIO_USERNAME", "x")
+    rep = pd.DataFrame({"Cust Order No": ["FN1", "FN2", "FN3"], "FWD Seller Order NO": ["O1", "O2", "O3"],
+                        "FWD AWB": ["A1", "A2", "A3"], "Seller Invoice No": ["I1", "I2", "I3"],
+                        "Pickup Timestamp": ["Thu Oct 22 11:57:00 IST 2026", "Thu Oct 22 12:03:00 IST 2026", None]})
+    monkeypatch.setattr(p, "ajio_order_report", lambda a, b: rep.copy())
+    df = pd.DataFrame({"Order ID": ["O1", "O2", "O3"], "AWB": ["A1", "A2", "A3"], "Invoice No": ["I1", "I2", "I3"],
+                       "Cust Order No": [None, None, None],
+                       "Order Time": pd.to_datetime(["2026-10-21 10:00"] * 3),
+                       "Pickup Time": pd.to_datetime(["2026-10-22 18:00", None, "2026-10-22 15:00"])})
+    out = p.ajio_report(df, [], since=pd.Timestamp("2026-10-15"))
+    assert list(out["Pickup Time"]) == [pd.Timestamp("2026-10-22 11:57"), pd.Timestamp("2026-10-22 12:03"),
+                                        pd.Timestamp("2026-10-22 15:00")]   # AJIO first, courier where AJIO has none
+    assert list(out["Cust Order No"]) == ["FN1", "FN2", "FN3"]

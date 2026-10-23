@@ -48,18 +48,20 @@ def ajio_order_report(first, last) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
-def ajio_report(df, errors: list[str]):
-    """From the AJIO Dropship order report, for the orders still without them:
-    Cust Order No (AJIO's FN... order number, matched on the seller order = Order ID) and
-    Pickup Time where courier tracking gave none ("Pickup Timestamp", matched on AWB, else seller
-    invoice). Old orders need the pickup: the couriers keep no history after a few months and
-    OMSGuru logs no pickup. Read 30 days at a time over the order dates missing either; an AJIO
-    failure is noted and the rest stands."""
+def ajio_report(df, errors: list[str], since=None):
+    """From the AJIO Dropship order report: Cust Order No (AJIO's FN... order number, matched on
+    the seller order = Order ID) where missing, and the Pickup Time: AJIO's "Pickup Timestamp"
+    (the report's last column, matched on AWB, else seller invoice) is THE pickup time, so it
+    replaces the courier tracking's time wherever AJIO has one; courier tracking only fills
+    orders AJIO shows no pickup for yet. Read 30 days at a time over the order dates from `since`
+    (the OMSGuru window) plus older orders still missing either; an AJIO failure is noted and
+    the courier / OMSGuru values stand."""
     if not env("AJIO_USERNAME"):
         return df
     no_pick = df["Pickup Time"].isna() & df["AWB"].notna()
     no_cust = df["Cust Order No"].isna()
-    want = (no_pick | no_cust) & df["Order Time"].notna()
+    recent = df["Order Time"] >= pd.Timestamp(since) if since is not None else False
+    want = (no_pick | no_cust | (recent & df["AWB"].notna())) & df["Order Time"].notna()
     if not want.any():
         return df
     first, last = df.loc[want, "Order Time"].min().date(), df.loc[want, "Order Time"].max().date()
@@ -86,10 +88,12 @@ def ajio_report(df, errors: list[str]):
     by_awb = picked.groupby(_key(picked["FWD AWB"]))["ts"].min()
     by_inv = picked.groupby(_key(picked["Seller Invoice No"]))["ts"].min()
     found = _key(df["AWB"]).map(by_awb).fillna(_key(df["Invoice No"]).map(by_inv))
-    fill = want & no_pick & found.notna()
+    fill = want & found.notna()
+    changed = fill & ~no_pick & (pd.to_datetime(df["Pickup Time"], errors="coerce") != found)
     df.loc[fill, "Pickup Time"] = found[fill]
-    log.info("AJIO order report %s..%s: %d lines, %d pickup times and %d Cust Order Nos filled",
-             first, last, len(rep), int(fill.sum()), int(fill_cust.sum()))
+    log.info("AJIO order report %s..%s: %d lines, %d pickup times from AJIO (%d new, %d replacing the "
+             "courier's time), %d Cust Order Nos filled", first, last, len(rep), int(fill.sum()),
+             int((fill & no_pick).sum()), int(changed.sum()), int(fill_cust.sum()))
     return df
 
 
@@ -543,7 +547,7 @@ def run(args) -> int:
         as_of = max(as_of, ev["ts"].max())
     if old_as_of is not None and pd.notna(old_as_of):
         as_of = max(as_of, old_as_of)
-    merged = ajio_report(erp_labels(merged, start, errors), errors)
+    merged = ajio_report(erp_labels(merged, start, errors), errors, since=start)
     df = apply_status(merged, as_of)
     s = summarize(df)
     note = (f"OMSGuru {start:%d-%b} to {end - timedelta(days=1):%d-%b} ({len(o)} lines read) "
