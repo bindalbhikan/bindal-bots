@@ -389,15 +389,27 @@ class MyntraPortal:
 
     # ------------------------------------------------------------ SPF claims (Support > Seller Protection Fund)
 
-    def spf_tickets(self, model: str = "PPMP", page_size: int = 50) -> list[dict]:
+    def spf_tickets(self, model: str = "PPMP", page_size: int = 500, tries: int = 3) -> list[dict]:
         """Every SPF ticket of the account, any status: ticketId, orderLineId, returnId,
-        issueCategory, status, createdOn (ISO, UTC)."""
+        issueCategory, status, createdOn (ISO, UTC).
+
+        MAIN has 17,000+ tickets: 500 a page (the portal's 50 meant 340+ calls, and one call stuck
+        for a minute on 23 Oct 2026 lost the whole list; 2,000 a page is refused). A page that
+        times out or comes back as an error page is asked again, up to `tries` times."""
         out: list[dict] = []
         page = 0
         while True:
-            data = self._call("GET", f"{SPF_API}/v2/getTickets", params=[
-                ("fetchAccio", "true"), ("modelType", model), ("page", page), ("pageSize", page_size),
-                *(("status", s) for s in SPF_STATUSES)])
+            params = [("fetchAccio", "true"), ("modelType", model), ("page", page), ("pageSize", page_size),
+                      *(("status", s) for s in SPF_STATUSES)]
+            for attempt in range(1, tries + 1):
+                try:
+                    data = self._call("GET", f"{SPF_API}/v2/getTickets", params=params)
+                    break
+                except Exception as exc:  # noqa: BLE001 - timeouts and error pages come and go
+                    if attempt == tries:
+                        raise
+                    log.warning("SPF tickets page %d failed (%s): trying again", page, str(exc)[:120])
+                    time.sleep(15 * attempt)
             rows = data.get("data") or []
             out += rows
             total = (data.get("status") or {}).get("totalCount") or 0

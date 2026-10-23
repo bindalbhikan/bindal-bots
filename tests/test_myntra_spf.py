@@ -77,3 +77,22 @@ def test_claims_are_raised_in_bulk_and_shown_as_bot_tickets(tmp_path):
     assert rows[0][:2] == ("ticketId", "orderLineId") and rows[1][:2] == ("BOT JOB 777", "11")
     off = tickets.raise_claims(None, "MAIN", {tickets.RNR: ["5"]}, tmp_path, False)
     assert off == ["MAIN Return Not Received: 1 due (not raised: tickets off)"]
+
+
+def test_spf_tickets_pages_of_500_and_a_failed_page_is_asked_again(monkeypatch):
+    from bindal.portals import myntra as mp
+    monkeypatch.setattr(mp.time, "sleep", lambda s: None)
+    portal = mp.MyntraPortal.__new__(mp.MyntraPortal)
+    calls = []
+
+    def call(method, url, params):
+        p = dict(params)
+        calls.append(p["page"])
+        if len(calls) == 2:
+            raise TimeoutError("timed out after 60002 ms")
+        rows = [{"orderLineId": f"{p['page']}-{i}"} for i in range(500 if p["page"] == 0 else 200)]
+        return {"data": rows, "status": {"totalCount": 700}}
+
+    portal._call = call
+    rows = portal.spf_tickets()
+    assert len(rows) == 700 and calls == [0, 1, 1]                 # page 1 failed once, asked again
