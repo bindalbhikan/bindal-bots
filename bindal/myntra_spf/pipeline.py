@@ -241,7 +241,8 @@ def final_status(r: dict) -> str:
     from .engine import SPF_ACCEPTED_STATUSES
     if str(r.get("SPF PAID") or "").strip():
         return "SPF Paid"
-    if str(r.get("STATUS") or "").strip().upper() in SPF_ACCEPTED_STATUSES:
+    if (str(r.get("STATUS") or "").strip().upper() in SPF_ACCEPTED_STATUSES
+            and str(r.get("TICKET ID") or "").strip()):
         return "SPF Accepted"
     oms, man = str(r.get("OMSGURU STATUS") or "").upper(), str(r.get("MANUAL RETURN STATUS") or "").upper()
     if "RECEIVED" in oms or "RECEIVED" in man or "PICKUP NOT DONE" in man:

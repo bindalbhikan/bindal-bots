@@ -174,7 +174,7 @@ RAW = [
 # The working columns, matching example.xlsx columns AZ:BG, plus REJECTION REASON
 # which comes from the ticket report alongside TICKET ID and STATUS.
 WORK = ['AGE (DAYS)', 'CLAIM STATUS', 'CLAIM TYPE', 'OMSGURU STATUS',
-        'MANUAL RETURN STATUS', 'FINAL RETURN STATUS', 'TICKET ID', 'STATUS',
+        'MANUAL RETURN STATUS', 'FINAL RETURN STATUS', 'TICKET ID', 'CLAIM TAT', 'STATUS',
         'REJECTION REASON', 'ORDER AMOUNT', 'ORDER SETTLEMENT', 'RETURN DEBIT',
         'RETURN CHARGE', 'SPF PAID', 'NET', 'UTR NO']
 
@@ -201,7 +201,7 @@ FORMULA_COLS = ['RETURN MONTH', 'AGE (DAYS)', 'CLAIM STATUS', 'CLAIM TYPE',
 # Filled in by hand - the script preserves whatever is there
 MANUAL_COLS = ['OMSGURU STATUS', 'MANUAL RETURN STATUS']
 # Filled from the ticket report; the previous value survives if no ticket is found
-TICKET_COLS = ['TICKET ID', 'STATUS', 'REJECTION REASON']
+TICKET_COLS = ['TICKET ID', 'CLAIM TAT', 'STATUS', 'REJECTION REASON']
 # Filled from the payment report; the previous value survives if no payout is found
 PAYMENT_COLS = ['SPF PAID', 'UTR NO', 'RETURN CHARGE', 'ORDER SETTLEMENT',
                 'RETURN DEBIT']
@@ -1352,6 +1352,25 @@ def _parse_ticket(path):
     return tickets, n
 
 
+def merge_tickets(tickets, portal_oids, found, from_portal):
+    """One ticket report's {order line: (created, ticket id, status, reason)} into `tickets`:
+    the newest ticket per order line wins. Bot only: the portal's own ticket list
+    (from_portal) is the current status of a ticket, so a hand export of the same ticket - an
+    older snapshot - never overrides it, whichever file is read first; and the portal's list
+    carries no rejection reason, so a reason another report gave for the same ticket is kept."""
+    for oid, val in found.items():
+        prev = tickets.get(oid)
+        same = prev is not None and str(prev[1]) == str(val[1])
+        if same and oid in portal_oids and not from_portal:
+            continue
+        if prev is None or same or val[0] >= prev[0]:
+            if from_portal:
+                portal_oids.add(oid)
+            if same and val[3] is None:
+                val = val[:3] + (prev[3],)
+            tickets[oid] = val
+
+
 def _parse_returns(path):
     """One returns report -> (records kept, in-transit-only lookup, warehouse models,
     counters).
@@ -1416,6 +1435,7 @@ def collect(account, log):
     # kept as a lookup: no row is added, the column just gets filled.
     only_transit = {}    # key -> {col: value}
     wh_model = {}        # warehouse_id -> set of models seen  (PPMP / SJIT / FBM)
+    portal_oids = set()
     stats = {'TRANSIT': 0, 'DELIVERED': 0, 'TICKET': 0, 'too_old': 0,
              'dropped_delivered': 0, 'dupes': 0, 'skipped': []}
 
@@ -1430,14 +1450,7 @@ def collect(account, log):
 
         if kind == 'TICKET':
             found, n = cached('ticket', path, _parse_ticket)
-            for oid, val in found.items():
-                prev = tickets.get(oid)
-                if prev is None or val[0] >= prev[0]:
-                    # Bot only: the portal's ticket list carries no rejection reason, so a
-                    # reason another report gave for the same ticket is kept
-                    if prev and val[3] is None and str(prev[1]) == str(val[1]):
-                        val = val[:3] + (prev[3],)
-                    tickets[oid] = val
+            merge_tickets(tickets, portal_oids, found, os.path.basename(path) in PORTAL_TICKET_FILES)
             stats['TICKET'] += n
             log('  %-58s TICKET   %6d' % (rel[:58], n))
             continue
@@ -1546,12 +1559,12 @@ def build_formulas(n):
     fee = C['RETURN CHARGE'] + str(n)
     tks = C['STATUS'] + str(n)
     f_final = ('=IF({s}<>"","SPF Paid",'
-               'IF(OR({tk}="ACCEPT",{tk}="INVOICE_INITIATED",{tk}="PAYMENT_COMPLETED"),"SPF Accepted",'
+               'IF(AND({tid}<>"",OR({tk}="ACCEPT",{tk}="INVOICE_INITIATED",{tk}="PAYMENT_COMPLETED")),"SPF Accepted",'
                'IF(OR(ISNUMBER(SEARCH("RECEIVED",{o})),ISNUMBER(SEARCH("RECEIVED",{m})),'
                'ISNUMBER(SEARCH("PICKUP NOT DONE",{m}))),'
                '"Return Received",'
                'IF(AND(ISNUMBER({st}),{d}="",{fe}=""),"Payment Received",""))))'
-               .format(s=spf, tk=tks, o=oms, m=man, st=settle, d=debit, fe=fee))
+               .format(s=spf, tk=tks, tid=tkt, o=oms, m=man, st=settle, d=debit, fe=fee))
 
     # A delivery date means the portal handed it back, so it is a "return not received"
     # case unless you confirm you actually have it.
@@ -1781,7 +1794,7 @@ WIDTHS = {
     'forward_tracking_number': 17, 'forward_tracking_number_2': 17,
     'return_tracking_number': 17,
     'AGE (DAYS)': 10, 'CLAIM STATUS': 16, 'CLAIM TYPE': 21, 'OMSGURU STATUS': 20,
-    'MANUAL RETURN STATUS': 21, 'FINAL RETURN STATUS': 19, 'TICKET ID': 12, 'STATUS': 12,
+    'MANUAL RETURN STATUS': 21, 'FINAL RETURN STATUS': 19, 'TICKET ID': 12, 'CLAIM TAT': 12, 'STATUS': 12,
     'REJECTION REASON': 46, 'SPF PAID': 15, 'UTR NO': 30,
     'RETURN CHARGE': 14, 'ORDER AMOUNT': 14, 'ORDER SETTLEMENT': 16,
     'RETURN DEBIT': 14, 'NET': 12,
@@ -1837,6 +1850,10 @@ NOTES = {
                              'manual return sheet has a RECD row whose order id,\n'
                              'return id or AWB matches this row.'),
     'TICKET ID': 'From the ticket report. Your previous value stays if none is found.',
+    'CLAIM TAT': ('Was the claim raised inside the SPF window?\n'
+                  'WITHIN TAT: within 7 days of the return delivered to us, or from\n'
+                  'day 60 to day 120 after return_created_date if it never came back.\n'
+                  'OUTSIDE TAT: any other day. Blank: the ticket date is not known.'),
     'STATUS': 'The SPF ticket portal status (ACCEPT / REJECT / OPEN).',
     'REJECTION REASON': ('From the ticket report - why Myntra rejected the claim.\n'
                          'Only filled when STATUS is REJECT.'),
@@ -2038,7 +2055,7 @@ def claim_tat_rows(data):
             row['CLAIMS RAISED'] += 1
             row['CLAIM QTY'] += 1
             row['CLAIM AMT'] += amt
-            tat = claim_tat(rec)
+            tat = claim_tat(rec) or str(rec.get('CLAIM TAT') or '').replace(' TAT', '')
             if tat:
                 row['%s TAT' % tat] += 1
                 row['%s TAT QTY' % tat] += 1
@@ -2390,6 +2407,8 @@ def write_ticket_details(wb, f):
     ws.autofilter(0, 0, len(rows), len(DETAIL_COLS) - 1)
 
 
+# Bot only: the ticket files the bot writes from the portal (bindal/myntra_spf/tickets.py)
+PORTAL_TICKET_FILES = {'SPF Tickets (portal).xlsx', 'SPF Tickets (new).xlsx', 'SPF Tickets (raised by bot).xlsx'}
 # Bot only: the TICKETS sheet's rows, filled by bindal/myntra_spf/pipeline.py
 TICKET_DETAILS = []
 
@@ -2482,7 +2501,7 @@ def is_settled(rec):
         return True
     if rec.get('SPF PAID') is not None:
         return True
-    if norm(rec.get('STATUS')) in SPF_ACCEPTED_STATUSES:
+    if norm(rec.get('STATUS')) in SPF_ACCEPTED_STATUSES and rec.get('TICKET ID') not in (None, ''):
         return True
     oms = str(rec.get('OMSGURU STATUS') or '').upper()
     man = str(rec.get('MANUAL RETURN STATUS') or '').upper()
@@ -2732,7 +2751,13 @@ def main():
             if t and t[1] is not None:
                 same = str(rec.get('TICKET ID')) == str(t[1])
                 rec['TICKET ID'], rec['STATUS'] = t[1], t[2]
-                rec['_ticket_created'] = t[0]          # for the CLAIM TAT sheet only
+                rec['_ticket_created'] = t[0]          # for the CLAIM TAT sheet
+                tat = claim_tat(rec)
+                if tat:
+                    rec['CLAIM TAT'] = tat + ' TAT'
+            # a ticket status with no ticket id (left by an old hand report) is no claim
+            if rec.get('TICKET ID') in (None, '') and rec.get('STATUS') is not None:
+                rec['STATUS'] = None
                 if t[3] is not None or not same:      # bot only: keep a known reason
                     rec['REJECTION REASON'] = t[3]
 

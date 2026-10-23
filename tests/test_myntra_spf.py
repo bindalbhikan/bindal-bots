@@ -113,13 +113,15 @@ def test_accepted_spf_ticket_is_a_final_status():
     from bindal.myntra_spf import engine
     from bindal.myntra_spf.pipeline import final_status
     for st in ("ACCEPT", "INVOICE_INITIATED", "PAYMENT_COMPLETED"):
-        assert final_status({"STATUS": st}) == "SPF Accepted"
-        assert engine.is_settled({"STATUS": st})
+        assert final_status({"STATUS": st, "TICKET ID": 9}) == "SPF Accepted"
+        assert engine.is_settled({"STATUS": st, "TICKET ID": 9})
+        assert final_status({"STATUS": st}) == "" and not engine.is_settled({"STATUS": st})   # no ticket id
     assert final_status({"STATUS": "PAYMENT_COMPLETED", "SPF PAID": 500}) == "SPF Paid"
     assert final_status({"STATUS": "REJECT"}) == "" and not engine.is_settled({"STATUS": "REJECT"})
     f = engine.build_formulas(5)["FINAL RETURN STATUS"]
     st = engine.C["STATUS"] + "5"
-    assert f'IF(OR({st}="ACCEPT",{st}="INVOICE_INITIATED",{st}="PAYMENT_COMPLETED"),"SPF Accepted",' in f
+    tid = engine.C["TICKET ID"] + "5"
+    assert f'IF(AND({tid}<>"",OR({st}="ACCEPT",{st}="INVOICE_INITIATED",{st}="PAYMENT_COMPLETED")),"SPF Accepted",' in f
     assert f.count("(") == f.count(")")
     assert ("SPF ACCEPTED", "count", None, [("FINAL RETURN STATUS", "SPF Accepted")]) in engine.SUMMARY_COLS
 
@@ -209,3 +211,22 @@ def test_cached_ticket_rows_stay_when_the_list_misses_them():
               "6": {"ACCOUNT": "DBCC", "TICKET ID": "6"}}
     out = tickets.ticket_details(Portal(), "MAIN", [], cached)
     assert [d["TICKET ID"] for d in out] == ["5"]
+
+
+
+def test_portal_ticket_list_beats_an_older_hand_export_of_the_same_ticket():
+    import datetime as dt
+    from bindal.myntra_spf import engine
+    day = dt.datetime(2026, 6, 25)
+    hand = {"11": (day, 6711398, "ACCEPT", "hand reason")}
+    portal = {"11": (day, 6711398, "REJECT", None)}
+    for first, second in (((hand, False), (portal, True)), ((portal, True), (hand, False))):
+        tickets, seen = {}, set()
+        engine.merge_tickets(tickets, seen, *first)
+        engine.merge_tickets(tickets, seen, *second)
+        assert tickets["11"][2] == "REJECT"
+    newer = {"11": (dt.datetime(2026, 7, 1), 7000001, "OPEN", None)}
+    tickets, seen = {}, set()
+    engine.merge_tickets(tickets, seen, portal, True)
+    engine.merge_tickets(tickets, seen, newer, False)           # a newer ticket on the line still wins
+    assert tickets["11"][1] == 7000001
