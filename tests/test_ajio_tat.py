@@ -131,8 +131,10 @@ def test_pickup_tickets_one_per_overdue_order_never_twice(monkeypatch):
         {**base, "Order ID": "2", "AWB": "A2", "Dispatch Deadline": pd.Timestamp("2026-10-22 12:00")},  # has ticket
         {**base, "Order ID": "3", "AWB": "A3", "Dispatch Deadline": pd.Timestamp("2026-10-23 12:00")},  # in grace
         {**base, "Order ID": "4", "AWB": "A4", "Dispatch Deadline": pd.Timestamp("2026-10-23 12:00"),
-         "Pickup Status": "Late"}])                                                                 # picked
+         "Pickup Status": "Late"},                                                                  # picked
+        {**base, "Order ID": "5", "AWB": "A5", "Dispatch Deadline": pd.Timestamp("2026-10-22 12:00")}])  # courier: picked
     sent = []
+    monkeypatch.setattr(p, "courier_pickup_check", lambda pairs: {"A1": "not picked", "A5": "picked"})
 
     class Client:
         def __init__(self, *a): pass
@@ -147,7 +149,23 @@ def test_pickup_tickets_one_per_overdue_order_never_twice(monkeypatch):
     monkeypatch.setattr(ajio, "AjioClient", Client)
     monkeypatch.setattr(p.time, "sleep", lambda s: None)
     done = p.raise_pickup_tickets(df, now, dry=False)
-    assert [(d["Order ID"], d["Result"]) for d in done] == [("1", "created"), ("2", "already has ticket")]
+    assert [(d["Order ID"], d["Result"]) for d in done] == [("1", "created"), ("2", "already has ticket"),
+                                                            ("5", "courier: picked")]
     assert sent[0]["orderId"] == "1" and sent[0]["issueType"] == "ORDERS" and sent[0]["ticketType"] == "GENERAL"
     assert sent[0]["subIssueType"] == ajio.PICKUP_NOT_DONE and "A1" in sent[0]["issueTitle"]
     assert "🎫" in p.pickup_ticket_report(done)[0]
+
+
+def test_ticket_ids_land_in_the_master_and_need_the_ajio_report(monkeypatch):
+    from types import SimpleNamespace
+    from bindal.ajio_tat import pipeline as p
+    args = SimpleNamespace(tickets=True, tickets_dry=False)
+    df = pd.DataFrame({"Order ID": ["1", "2"], "Pickup Ticket": [None, "OLD"]})
+    monkeypatch.setattr(p, "raise_pickup_tickets", lambda *a, **k: [
+        {"Order ID": "1", "AWB": "A1", "Courier": "BLUEDART", "Pickup Deadline": pd.NaT,
+         "Ticket": "T1", "Result": "created"}])
+    out, rep = p.pickup_tickets(df, args, [])
+    assert out["Pickup Ticket"].tolist() == ["T1", "OLD"] and rep
+    out, rep = p.pickup_tickets(df, args, ["AJIO order report not read: timeout"])
+    assert pd.isna(out.loc[0, "Pickup Ticket"]) and out.loc[1, "Pickup Ticket"] == "OLD"
+    assert "not raised" in rep[0]

@@ -21,9 +21,9 @@ from ..core import dashboard, telegram
 from ..core.app import run_bot
 from ..core.config import ROOT, csv_list, env, num, output_dir
 from ..portals.omsguru import OmsGuruClient
-from .tat_engine import (OPEN_PICKUP, apply_status, apply_tracking, dispatch_deadlines,
-                         needs_oms_refresh, build_report, merge_master, normalize_master,
-                         prepare_tracking, summarize, write_excel)
+from .tat_engine import (NOT_PICKED_COURIER_STATUSES, OPEN_PICKUP, apply_status, apply_tracking,
+                         dispatch_deadlines, needs_oms_refresh, build_report, merge_master,
+                         normalize_master, pickup_times, prepare_tracking, summarize, write_excel)
 
 KEEP_BACKUPS = 30
 MASTER_NAME = "AJIO_TAT_MASTER.xlsx"
@@ -229,23 +229,30 @@ def oms_window(args) -> tuple[datetime, datetime]:
     return start, end
 
 
-def track(pairs: pd.DataFrame):
-    """pairs: AWB + Courier columns, one row per AWB to track."""
+def track_results(pairs: pd.DataFrame) -> list:
+    """pairs: AWB + Courier columns, one row per AWB to track; the tracker's result per AWB."""
     jobs = [Job(a, p) for a, p in zip(pairs["AWB"], pairs["Courier"])]
     if not jobs:
-        return prepare_tracking([], []), 0, []
+        return []
     cfg_path = ROOT / "tracking_config.json"
     cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
     if env("SHADOWFAX_TOKEN"):
         cfg.setdefault("couriers", {}).setdefault("SHADOWFAX", {})["token"] = env("SHADOWFAX_TOKEN")
     log.info("Tracking %d AWBs (pickup not confirmed yet)", len(jobs))
-    results = track_all(jobs, CourierRegistry(cfg), workers=num("TRACK_WORKERS", 8), progress=False)
+    return track_all(jobs, CourierRegistry(cfg), workers=num("TRACK_WORKERS", 8), progress=False)
+
+
+def track(pairs: pd.DataFrame):
+    """pairs: AWB + Courier columns, one row per AWB to track."""
+    results = track_results(pairs)
+    if not results:
+        return prepare_tracking([], []), 0, []
     summary = [r.summary_row() for r in results]
     events = [e for r in results for e in r.event_rows()]
     # NOT_FOUND is normal for a fresh AWB the courier has not manifested yet: not an error
     failed = [f"{r.partner} {r.awb}: {r.error}" for r in results
               if not r.ok and r.error and r.status != "NOT_FOUND"]
-    return prepare_tracking(summary, events), len(jobs), failed
+    return prepare_tracking(summary, events), len(results), failed
 
 
 def awbs_to_track(o: pd.DataFrame, old_status: pd.DataFrame) -> pd.DataFrame:
@@ -403,10 +410,29 @@ def pickup_ticket_text(r) -> tuple[str, str]:
     return subject, description
 
 
+def courier_pickup_check(pairs: pd.DataFrame) -> dict[str, str]:
+    """AWB -> "picked" / "not picked" / "not checked", from the courier's site right now. Picked: a
+    pickup (or later) scan, or a status past pickup. NOT_FOUND (the courier has no such AWB yet) is
+    not picked; any other tracking failure is not checked."""
+    out = {}
+    for r in track_results(pairs):
+        summ, ev = prepare_tracking([r.summary_row()], r.event_rows())
+        pk = pickup_times(ev)
+        if (pk["Pickup Time"].notna().any()
+                or str(r.status) not in NOT_PICKED_COURIER_STATUSES):
+            out[str(r.awb)] = "picked"
+        elif not r.ok and r.status != "NOT_FOUND":
+            out[str(r.awb)] = "not checked"
+        else:
+            out[str(r.awb)] = "not picked"
+    return out
+
+
 def raise_pickup_tickets(df, now, dry: bool) -> list[dict]:
-    """One AJIO ticket (ORDERS > PICKUP NOT DONE / SHIPMENT NOT SCANNING) per overdue order. An order
-    that already has a pickup ticket from the last 30 days is skipped, so a ticket is never raised twice;
-    at most TICKET_CAP (40) per run. If the ticket check fails nothing is raised."""
+    """One AJIO ticket (ORDERS > PICKUP NOT DONE / SHIPMENT NOT SCANNING) per overdue order whose
+    pickup neither the AJIO order report (already read into df this run) nor the courier's site,
+    checked again here, shows. An order that already has a pickup ticket from the last 30 days is
+    skipped, so a ticket is never raised twice; at most TICKET_CAP (40) per run."""
     from ..portals.ajio import PICKUP_NOT_DONE, AjioClient, pickup_payload
     cands = pickup_ticket_candidates(df, now)
     if cands.empty or not env("AJIO_USERNAME"):
@@ -416,13 +442,17 @@ def raise_pickup_tickets(df, now, dry: bool) -> list[dict]:
     old = client.ticket_list((now - pd.Timedelta(days=30)).date(), now.date())
     have = {str(t.get("orderId") or "").strip(): str(t.get("ticketId")) for t in old
             if str(t.get("subCategory") or "").upper() == PICKUP_NOT_DONE}
+    courier = courier_pickup_check(cands[~cands["Order ID"].astype(str).str.strip().isin(have)])
     pob, cap, done = env("POB_ID", "DV00348890"), num("TICKET_CAP", 40), []
     for _, r in cands.iterrows():
         oid = str(r["Order ID"]).strip()
         rec = {"Order ID": oid, "AWB": str(r["AWB"]), "Courier": str(r["Courier"]),
                "Pickup Deadline": r["Dispatch Deadline"], "Ticket": have.get(oid, ""), "Result": ""}
+        seen = courier.get(str(r["AWB"]), "not checked")
         if oid in have:
             rec["Result"] = "already has ticket"
+        elif seen != "not picked":
+            rec["Result"] = f"courier: {seen}"
         elif sum(d["Result"] in ("created", "dry-run") for d in done) >= cap:
             rec["Result"] = "over cap"
         elif dry:
@@ -440,6 +470,28 @@ def raise_pickup_tickets(df, now, dry: bool) -> list[dict]:
     return done
 
 
+def pickup_tickets(df, args, errors: list[str]):
+    """When on (--tickets / --tickets-dry / AJIO_PICKUP_TICKETS=1): raise the pickup tickets and write
+    each order's ticket id into the master's "Pickup Ticket" column. Not raised when this run could
+    not read the AJIO order report (its Pickup Timestamp is the first pickup check).
+    Returns the master and the Telegram report ([] when nothing to say)."""
+    if not (args.tickets or args.tickets_dry or env("AJIO_PICKUP_TICKETS", "").lower() in ("1", "true", "yes")):
+        return df, []
+    if any(e.startswith("AJIO order report not read") for e in errors):
+        return df, ["⚠️ AJIO pickup tickets not raised: the AJIO order report (pickup times) was not read"]
+    try:
+        done = raise_pickup_tickets(df, pd.Timestamp.now(), dry=args.tickets_dry)
+    except Exception as exc:  # noqa: BLE001 - the TAT report still goes out
+        log.exception("Pickup tickets not raised")
+        return df, [f"⚠️ AJIO pickup tickets not raised: {telegram.esc(str(exc)[:150])}"]
+    ids = {d["Order ID"]: d["Ticket"] for d in done if d["Ticket"] and d["Result"] != "dry-run"}
+    if ids:
+        df = df.copy()
+        got = df["Order ID"].astype(str).str.strip().map(ids)
+        df.loc[got.notna(), "Pickup Ticket"] = got[got.notna()]
+    return df, pickup_ticket_report(done)
+
+
 def pickup_ticket_report(done: list[dict]) -> list:
     """Telegram: the pickup tickets this run raised (or would raise, dry run); [] when none."""
     new = [d for d in done if d["Result"] in ("created", "dry-run")]
@@ -450,6 +502,11 @@ def pickup_ticket_report(done: list[dict]) -> list:
     table = [f"{d['AWB'][:15]:<15} {short_courier(d['Courier'])[:7]:<7} {d['Ticket'][-4:] or '-'}" for d in new]
     lines = [f"🎫 <b>AJIO Pickup Tickets · {len(new)} {'to raise (dry run)' if dry else 'raised'}</b>",
              "<i>ORDERS › Pickup not done, one per order whose pickup deadline has passed</i>"]
+    picked = sum(d["Result"] == "courier: picked" for d in done)
+    unchecked = sum(d["Result"] == "courier: not checked" for d in done)
+    if picked or unchecked:
+        lines.append(f"Not raised: {picked} picked per the courier's site"
+                     + (f", {unchecked} courier site not reachable" if unchecked else ""))
     if failed:
         lines.append(f"⚠️ {len(failed)} failed: " + ", ".join(d["Order ID"] for d in failed[:10]))
     if table:
@@ -643,6 +700,7 @@ def run(args) -> int:
     merged = ajio_report(erp_labels(merged, start, errors), errors,
                          since=datetime.now() - timedelta(days=num("AJIO_PICKUP_DAYS", 30)))
     df = apply_status(merged, as_of)
+    df, tickets = pickup_tickets(df, args, errors)
     s = summarize(df)
     note = (f"OMSGuru {start:%d-%b} to {end - timedelta(days=1):%d-%b} ({len(o)} lines read) "
             f"+ courier tracking ({n_awbs} open AWBs)")
@@ -672,13 +730,6 @@ def run(args) -> int:
                    f"\u2022 {len(errors)} order page / tracking lookups failed; those orders keep their "
                    "last known status (list in the run's errors.log)")
     score = courier_scorecard(df)
-    tickets = []
-    if args.tickets or args.tickets_dry or env("AJIO_PICKUP_TICKETS", "").lower() in ("1", "true", "yes"):
-        try:
-            tickets = pickup_ticket_report(raise_pickup_tickets(df, pd.Timestamp.now(), dry=args.tickets_dry))
-        except Exception as exc:  # noqa: BLE001 - the TAT report still goes out
-            log.exception("Pickup tickets not raised")
-            tickets = [f"⚠️ AJIO pickup tickets not raised: {telegram.esc(str(exc)[:150])}"]
     if tickets:
         telegram.send_report(tickets, "AJIO_pickup_tickets", dry=args.no_telegram)
     if args.no_telegram:

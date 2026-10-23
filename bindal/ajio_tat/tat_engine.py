@@ -68,11 +68,11 @@ NOT_PICKED_COURIER_STATUSES = {"UNKNOWN", "NOT_FOUND", "PENDING", "OUT_FOR_PICKU
 REPORT_COLS = ["Invoice No", "Order ID", "Cust Order No", "AWB", "Courier", "Order Time",
                "Dispatch Deadline", "Processed Time", "RTS Time", "Pickup Attempt Time", "Pickup Time",
                "Process Status", "Pickup Status", "TAT Result", "OMS Item Status",
-               "Courier Status", "Label Printed", "ERP Label Time", "ERP Label By", "Last Updated"]
+               "Courier Status", "Label Printed", "ERP Label Time", "ERP Label By", "Pickup Ticket", "Last Updated"]
 # Raw fields kept in the master (_data sheet) so statuses can be recomputed every run.
 DATA_COLS = ["Invoice No", "Order ID", "Cust Order No", "AWB", "Courier", "Order Time",
              "Dispatch Deadline", "Processed Time", "RTS Time", "RTS Exact", "Pickup Attempt Time", "Pickup Time",
-             "OMS Item Status", "Courier Status", "ERP Label Time", "ERP Label By", "Last Updated"]
+             "OMS Item Status", "Courier Status", "ERP Label Time", "ERP Label By", "Pickup Ticket", "Last Updated"]
 TIME_COLS = ["Order Time", "Dispatch Deadline", "Processed Time", "RTS Time",
              "Pickup Attempt Time", "Pickup Time", "ERP Label Time", "Last Updated"]
 STATUS_COLS = ["Process Status", "Pickup Status", "TAT Result"]
@@ -221,7 +221,7 @@ def normalize_master(m):
     m = m.reindex(columns=DATA_COLS).copy()
     for c in TIME_COLS:
         m[c] = pd.to_datetime(m[c], errors="coerce")
-    for c in ("Invoice No", "Order ID", "Cust Order No", "AWB"):
+    for c in ("Invoice No", "Order ID", "Cust Order No", "AWB", "Pickup Ticket"):
         m[c] = m[c].astype(str).replace({"nan": None, "None": None, "": None, "NaT": None})
         m[c] = m[c].str.replace(r"\.0$", "", regex=True)
     m["RTS Exact"] = m["RTS Exact"].map(
