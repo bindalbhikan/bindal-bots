@@ -54,8 +54,10 @@ def ajio_report(df, errors: list[str], since=None):
     (the report's last column, matched on AWB, else seller invoice) is THE pickup time, so it
     replaces the courier tracking's time wherever AJIO has one; courier tracking only fills
     orders AJIO shows no pickup for yet. Read 30 days at a time over the order dates from `since`
-    (the OMSGuru window) plus older orders still missing either; an AJIO failure is noted and
-    the courier / OMSGuru values stand."""
+    (AJIO_PICKUP_DAYS, 30 days back) plus older orders still missing either; every order the
+    report has a pickup for takes it. An AJIO failure is noted and the courier / OMSGuru values
+    stand. (23 Oct 2026: of 2,139 AJIO pickups since 1 Sep, 45 differed from the courier's scan,
+    AJIO 4 to 11 hours later.)"""
     if not env("AJIO_USERNAME"):
         return df
     no_pick = df["Pickup Time"].isna() & df["AWB"].notna()
@@ -88,7 +90,7 @@ def ajio_report(df, errors: list[str], since=None):
     by_awb = picked.groupby(_key(picked["FWD AWB"]))["ts"].min()
     by_inv = picked.groupby(_key(picked["Seller Invoice No"]))["ts"].min()
     found = _key(df["AWB"]).map(by_awb).fillna(_key(df["Invoice No"]).map(by_inv))
-    fill = want & found.notna()
+    fill = found.notna()
     changed = fill & ~no_pick & (pd.to_datetime(df["Pickup Time"], errors="coerce") != found)
     df.loc[fill, "Pickup Time"] = found[fill]
     log.info("AJIO order report %s..%s: %d lines, %d pickup times from AJIO (%d new, %d replacing the "
@@ -547,7 +549,8 @@ def run(args) -> int:
         as_of = max(as_of, ev["ts"].max())
     if old_as_of is not None and pd.notna(old_as_of):
         as_of = max(as_of, old_as_of)
-    merged = ajio_report(erp_labels(merged, start, errors), errors, since=start)
+    merged = ajio_report(erp_labels(merged, start, errors), errors,
+                         since=datetime.now() - timedelta(days=num("AJIO_PICKUP_DAYS", 30)))
     df = apply_status(merged, as_of)
     s = summarize(df)
     note = (f"OMSGuru {start:%d-%b} to {end - timedelta(days=1):%d-%b} ({len(o)} lines read) "
