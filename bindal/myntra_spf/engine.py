@@ -2751,6 +2751,8 @@ def main():
             if t and t[1] is not None:
                 same = str(rec.get('TICKET ID')) == str(t[1])
                 rec['TICKET ID'], rec['STATUS'] = t[1], t[2]
+                if t[3] is not None or not same:      # bot only: keep a known reason
+                    rec['REJECTION REASON'] = t[3]
                 rec['_ticket_created'] = t[0]          # for the CLAIM TAT sheet
                 tat = claim_tat(rec)
                 if tat:
@@ -2758,8 +2760,6 @@ def main():
             # a ticket status with no ticket id (left by an old hand report) is no claim
             if rec.get('TICKET ID') in (None, '') and rec.get('STATUS') is not None:
                 rec['STATUS'] = None
-                if t[3] is not None or not same:      # bot only: keep a known reason
-                    rec['REJECTION REASON'] = t[3]
 
             # Same idea for the payout: refreshed whenever the payment report has one
             # for this order line, left as it was when it does not. seller_order_id is

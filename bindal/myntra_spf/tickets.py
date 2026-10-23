@@ -153,7 +153,7 @@ def portal_tickets(portal, account: str, dest: Path, cached: dict | None = None,
         # The full list is 35 pages and the portal's order can shift while they are read (on
         # 23 Oct 2026 one read missed 900 of MAIN's 2,288 recent claims): the recent ones are
         # read again on their own with the claim date filter, a short and steady list.
-        since = datetime.now() - timedelta(days=num("MYNTRA_SPF_DETAIL_DAYS", 120))
+        since = datetime.combine(date.today() - timedelta(days=num("MYNTRA_SPF_DETAIL_DAYS", 120)), datetime.min.time())
         seen = set()
         rows = [t for t in rows + portal.spf_tickets(since=since)
                 if not (t.get("ticketId") in seen or seen.add(t.get("ticketId")))]
@@ -228,7 +228,7 @@ def ticket_details(portal, account: str, rows: list[dict], cached: dict[str, dic
     and older ones not settled yet. A ticket whose LAST UPDATED is the cached row's is not read
     again; at most MYNTRA_SPF_DETAIL_MAX (3000) claim pages a run, the rest keep the cached row
     (or the list's own fields) until the next run."""
-    since = datetime.now() - timedelta(days=num("MYNTRA_SPF_DETAIL_DAYS", 120))
+    since = datetime.combine(date.today() - timedelta(days=num("MYNTRA_SPF_DETAIL_DAYS", 120)), datetime.min.time())
     keep = [t for t in rows if (_utc(t.get("createdOn")) or datetime.min) >= since
             or t.get("status") not in FINAL_STATUSES]
     todo, out = [], {}
