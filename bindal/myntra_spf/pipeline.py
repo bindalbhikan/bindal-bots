@@ -9,6 +9,9 @@ folder in a work folder:
   * ERP: GR GRN report and the dispatch (packing) report
   * Drive SPF/MYNTRA/input: what is still dropped by hand - each account's Ticket1 and payment
     exports, MANUAL RETURN and LEGACY MASTER
+  * Myntra SPF tickets of each account (portal API), read as one more ticket report
+After the first engine run the SPF claims due by the policy timelines are raised (tickets.py,
+only with MYNTRA_SPF_TICKETS=1; otherwise they are only counted in the report).
 The previous master (from Drive) is the base, so a run only adds and updates rows. The new
 master replaces the Drive file in place (Drive keeps the old versions).
 """
@@ -31,6 +34,7 @@ from ..core import dashboard, telegram
 from ..core.app import run_bot
 from ..core.config import env, num, output_dir
 from ..core.drive import DriveFile, DriveFolder
+from . import tickets
 
 log = logging.getLogger("bindal.myntra_spf")
 
@@ -60,7 +64,8 @@ def _windows(today: date) -> dict[int, list[tuple[date, date]]]:
 
 
 def fetch_account(account: str, today: date, dest: Path, notes: list[str],
-                  old_orders: list[tuple[date, date]] | None = None) -> None:
+                  old_orders: list[tuple[date, date]] | None = None,
+                  ticketed: dict[str, set[str]] | None = None) -> None:
     """The account's returns, delivery and order reports into dest. Different reports are asked
     for together; the same report again only after the cooldown. Jobs for the same dates are reused.
 
@@ -69,7 +74,11 @@ def fetch_account(account: str, today: date, dest: Path, notes: list[str],
     MYNTRA_SPF_OLD_ORDERS_NEW (1) new one is asked for per run, after the daily ones, and is
     waited for only MYNTRA_SPF_OLD_WAIT_MINUTES (10); the rest, a refusal or a report not ready
     in time are left to the next runs. Daily reports refused are asked again after the cooldown,
-    up to 3 times."""
+    up to 3 times.
+
+    ticketed: filled with the order lines that have an SPF ticket on the portal (the tickets are
+    also written into dest as a ticket report). Left out when they could not be read, so no
+    claim is raised for the account."""
     from ..return_analysis.sources import myntra_portal
     from ..portals import myntra as mp
     portal = myntra_portal(account)
@@ -143,6 +152,12 @@ def fetch_account(account: str, today: date, dest: Path, notes: list[str],
             left.append(str((job.get("queryParams") or {}).get("reportStartDate", job.get("id"))))
     if left:
         notes.append(f"{account}: older order reports still to fetch (next runs): {', '.join(left)}")
+    if ticketed is not None:
+        try:
+            ticketed[account] = tickets.portal_tickets(portal, account, dest.parent)
+        except Exception as exc:  # noqa: BLE001 - no claims for this account then
+            log.exception("%s SPF tickets not read", account)
+            notes.append(f"{account} SPF tickets not read, no claims raised: {str(exc)[:80]}")
     mp.save_to_worker(env, portal.cookies(), account)
 
 
@@ -423,6 +438,45 @@ def oms_statuses(wanted: dict[tuple, dict], notes: list[str]) -> dict[tuple, str
     return {ret["key"]: res["status"] for ret, res in found if res.get("status")}
 
 
+def raise_due_claims(work: Path, today: date, ticketed: dict[str, set[str]], oms: dict,
+                     notes: list[str]) -> list[str]:
+    """SPF claims due today per account (tickets.candidates), raised when MYNTRA_SPF_TICKETS=1,
+    else only counted. Accounts whose portal tickets could not be read are skipped. The lines
+    for the report; they also go to notes."""
+    from ..return_analysis.sources import myntra_portal
+    from ..portals import myntra as mp
+    received = {k for k, v in oms.items() if "RECEIVED" in str(v).upper()}
+    try:
+        due = tickets.candidates(work / MASTER_NAME, today, ticketed, received)
+    except Exception as exc:  # noqa: BLE001 - the master still goes out
+        log.exception("SPF claims not worked out")
+        notes.append(f"SPF claims not worked out: {str(exc)[:100]}")
+        return []
+    live = env("MYNTRA_SPF_TICKETS") == "1"
+    lines: list[str] = []
+    for account in ACCOUNTS:
+        if account not in ticketed:
+            continue
+        wanted = due.get(account) or {}
+        if not any(wanted.values()):
+            continue
+        try:
+            portal = myntra_portal(account) if live else None
+            lines += tickets.raise_claims(portal, account, wanted, work / "input", live,
+                                          seller=mp.ACCOUNTS.get(account))
+            if portal:
+                mp.save_to_worker(env, portal.cookies(), account)
+        except Exception as exc:  # noqa: BLE001 - the other accounts still go
+            log.exception("%s SPF claims failed", account)
+            lines.append(f"{account} SPF claims failed: {str(exc)[:80]}")
+    if not lines:
+        lines = ["SPF claims: none due today"]
+    for line in lines:
+        log.info(line)
+    notes[:0] = lines
+    return [line for line in lines if " raised (" in line]
+
+
 def run_engine(work: Path, oms: dict | None = None) -> None:
     """The engine's main() inside the work folder, with OMSGuru results when given."""
     import importlib
@@ -468,7 +522,8 @@ def run(args) -> int:
     except Exception:  # noqa: BLE001 - the daily reports still run
         log.exception("Months of missing order amounts not worked out")
         old_orders = {}
-    tasks = {a: (fetch_account, (a, today, inp / a, notes, old_orders.get(a))) for a in ACCOUNTS}
+    ticketed: dict[str, set[str]] = {}
+    tasks = {a: (fetch_account, (a, today, inp / a, notes, old_orders.get(a), ticketed)) for a in ACCOUNTS}
     with ThreadPoolExecutor(max_workers=len(tasks) + 1) as pool:
         futures = {name: pool.submit(fn, *a) for name, (fn, a) in tasks.items()}
         erp = pool.submit(fetch_erp, inp)
@@ -494,12 +549,15 @@ def run(args) -> int:
         oms = oms_statuses(wanted, notes)
         received = sum(1 for v in oms.values() if "RECEIVED" in v.upper())
         log.info("OMSGuru: %d statuses, %d received", len(oms), received)
-        if oms:
-            run_engine(work, oms)
         notes.insert(0, f"OMSGuru checked {len(wanted)} open returns: {received} received")
     except Exception as exc:  # noqa: BLE001 - the ERP / manual result still stands
         log.exception("OMSGuru check failed")
         notes.append(f"OMSGuru not checked: {str(exc)[:100]}")
+        oms = {}
+    # 3) SPF claims due today (policy timelines), raised on the portal; shown in the master at once
+    claims = raise_due_claims(work, today, ticketed, oms, notes)
+    if oms or claims:
+        run_engine(work, oms)
     out = output_dir("myntra_spf")
     shutil.copy2(work / MASTER_NAME, out / MASTER_NAME)
     if args.no_upload:

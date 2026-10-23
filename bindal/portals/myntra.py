@@ -47,6 +47,14 @@ HEADERS = {"Accept": "application/json", "X-Requested-With": "XMLHttpRequest",
 # Akamai bot-manager cookies live for minutes or hours and are renewed by the server;
 # they say nothing about when the login runs out
 NOT_LOGIN = re.compile(r"^(_abck|ak_bmsc|bm_\w+|_ga\w*|_gid|_gcl\w*)$")
+# SPF claims (captured from the portal, Oct 2026)
+SPF_API = "https://partnersapi.myntrainfo.com/api/spf"
+SPF_BLOB = "https://myntrascmuistaticassets.blob.core.windows.net/spf-claims"
+SPF_STATUSES = ("OPEN", "IN_REVIEW", "ACCEPT", "REJECT", "MANUAL", "INVOICE_CREATED", "INVOICE_INITIATED",
+                "PAYMENT_INITIATED", "PAYMENT_COMPLETED", "AWAITING_SELLER_RESPONSE",
+                "AWAITING_AGENT_RESPONSE", "CLOSED", "DISPUTED")
+SPF_BULK_MAX = 500                  # "Upload Order IDs for SPF (Max 500)"
+XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 # job statuses that will never complete (INTERRUPTED seen on old jobs, Oct 2026)
 FAILED = ("FAIL", "ERROR", "CANCEL", "REJECT", "INTERRUPT", "ABORT", "EXPIRE", "TIMEOUT")
 
@@ -219,7 +227,8 @@ class MyntraPortal:
         self.timeout = timeout
 
     def _call(self, method: str, path: str, **kw) -> dict:
-        r = self.http.request(method, f"{API}{path}", headers=HEADERS, timeout=self.timeout, **kw)
+        url = path if path.startswith("http") else f"{API}{path}"
+        r = self.http.request(method, url, headers=HEADERS, timeout=self.timeout, **kw)
         if r.status_code in (401, 403):
             raise SessionExpired(f"portal answered HTTP {r.status_code}: logged out")
         try:
@@ -377,6 +386,59 @@ class MyntraPortal:
                     log.warning("Older SJIT report skipped: %s", exc)
         got.sort(key=lambda g: g[0].get("createdOn") or 0, reverse=True)
         return [f for _, f in got], covered
+
+    # ------------------------------------------------------------ SPF claims (Support > Seller Protection Fund)
+
+    def spf_tickets(self, model: str = "PPMP", page_size: int = 50) -> list[dict]:
+        """Every SPF ticket of the account, any status: ticketId, orderLineId, returnId,
+        issueCategory, status, createdOn (ISO, UTC)."""
+        out: list[dict] = []
+        page = 0
+        while True:
+            data = self._call("GET", f"{SPF_API}/v2/getTickets", params=[
+                ("fetchAccio", "true"), ("modelType", model), ("page", page), ("pageSize", page_size),
+                *(("status", s) for s in SPF_STATUSES)])
+            rows = data.get("data") or []
+            out += rows
+            total = (data.get("status") or {}).get("totalCount") or 0
+            if not rows or len(out) >= total:
+                return out
+            page += 1
+
+    def spf_bulk_claim(self, order_line_ids: list, category: str, description: str,
+                       model: str = "PPMP", seller: int | None = None) -> int:
+        """One bulk claim, as the portal's "Delayed / Return Not Received" upload does it: an xlsx
+        with one OrderId column (order line ids, max SPF_BULK_MAX) is put on the claims blob store,
+        then createRnrBulkTickets is called with its link. Returns the job id; the tickets turn up
+        in spf_tickets() a minute or so later."""
+        import io
+        from openpyxl import Workbook
+        if not 0 < len(order_line_ids) <= SPF_BULK_MAX:
+            raise ValueError(f"a bulk claim takes 1 to {SPF_BULK_MAX} order lines, not {len(order_line_ids)}")
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["OrderId"])
+        for oli in order_line_ids:
+            ws.append([int(oli)])
+        buf = io.BytesIO()
+        wb.save(buf)
+        seller = seller or self.partner_id() or 0
+        name = f"{seller}_{int(time.time() * 1000)}"
+        token = self._call("GET", f"{API.rsplit('/', 1)[0]}/file-manager/getUploadToken/spfJob",
+                           params={"fileNames": name}).get(name) or {}
+        if not token.get("sasUrl") or not token.get("fileNameWithPath"):
+            raise RuntimeError("Myntra SPF upload token missing from the portal's answer")
+        r = self.http.put(token["sasUrl"], data=buf.getvalue(), timeout=self.timeout,
+                          headers={"x-ms-blob-type": "BlockBlob", "Content-Type": XLSX})
+        if r.status_code not in (200, 201):
+            raise RuntimeError(f"Myntra SPF claim file upload failed: HTTP {r.status_code}")
+        data = self._call("POST", f"{SPF_API}/createRnrBulkTickets", json={
+            "fileUrl": f"{SPF_BLOB}/{token['fileNameWithPath']}", "description": description,
+            "issueCategory": category, "modelType": model})
+        if not data.get("jobId"):
+            raise RuntimeError(f"Myntra SPF bulk claim not accepted: {str(data)[:200]}")
+        log.info("SPF bulk claim %s: %d order lines, job %s", category, len(order_line_ids), data["jobId"])
+        return int(data["jobId"])
 
 
 def expiry_warning(session: Session, warn_days: int, now: datetime | None = None, life_days: int = 15) -> str:

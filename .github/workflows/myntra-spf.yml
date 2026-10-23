@@ -45,6 +45,8 @@ jobs:
       DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
       DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
       OMSGURU_WORKERS: ${{ vars.OMSGURU_WORKERS }}
+      # 1 = raise the SPF claims due today on the portal; anything else only counts them
+      MYNTRA_SPF_TICKETS: ${{ vars.MYNTRA_SPF_TICKETS }}
       IN_NO_UPLOAD: ${{ inputs.no_upload }}
       IN_REQUEST: ${{ inputs.request }}
     steps:

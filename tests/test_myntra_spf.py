@@ -33,3 +33,47 @@ def test_young_in_transit_rows_are_parked_and_read_back(tmp_path, monkeypatch):
     engine.write_master(data)
     back = engine.read_old_master()
     assert {k[0] for k in back["MAIN"]} == {"111", "222"}
+
+
+def test_claims_follow_the_policy_timelines():
+    import datetime as dt
+    from bindal.myntra_spf.tickets import DELAYED, RNR, claim_of
+    today = dt.date(2026, 10, 23)
+    ago = lambda d: dt.datetime.combine(today - dt.timedelta(days=d), dt.time())  # noqa: E731
+    delivered = {"order_line_id": 1, "model": "PPMP", "status": "Ret Delivered"}
+    assert claim_of(dict(delivered, deliver_to_seller_date=ago(3)), today, set()) is None
+    assert claim_of(dict(delivered, deliver_to_seller_date=ago(4)), today, set()) == RNR
+    assert claim_of(dict(delivered, deliver_to_seller_date=ago(7)), today, set()) == RNR
+    assert claim_of(dict(delivered, deliver_to_seller_date=ago(8)), today, set()) is None
+    transit = {"order_line_id": 2, "model": "PPMP", "status": "Ret Created"}
+    assert claim_of(dict(transit, return_created_date=ago(60)), today, set()) is None
+    assert claim_of(dict(transit, return_created_date=ago(61)), today, set()) == DELAYED
+    assert claim_of(dict(transit, return_created_date=ago(120)), today, set()) == DELAYED
+    assert claim_of(dict(transit, return_created_date=ago(121)), today, set()) is None
+    due = dict(transit, return_created_date=ago(70))
+    assert claim_of(due, today, {"2"}) is None                              # ticket on the portal
+    assert claim_of(dict(due, **{"TICKET ID": 9924390}), today, set()) is None
+    assert claim_of(dict(due, model="SJIT"), today, set()) is None
+    assert claim_of(dict(due, **{"OMSGURU STATUS": "Return Received ERP"}), today, set()) is None
+    assert claim_of(dict(due, **{"RETURN POD": "YES"}), today, set()) is None
+
+
+def test_claims_are_raised_in_bulk_and_shown_as_bot_tickets(tmp_path):
+    from openpyxl import load_workbook
+    from bindal.myntra_spf import tickets
+
+    class Portal:
+        calls = []
+
+        def spf_bulk_claim(self, ids, cat, desc, seller=None):
+            self.calls.append((list(ids), cat, seller))
+            return 777
+
+    portal = Portal()
+    lines = tickets.raise_claims(portal, "DBCC", {tickets.DELAYED: ["11", "12"]}, tmp_path, True, seller=32207)
+    assert portal.calls == [(["11", "12"], tickets.DELAYED, 32207)]
+    assert lines == ["DBCC Delayed Returns: 2 raised (job 777)"]
+    rows = list(load_workbook(tmp_path / "DBCC" / tickets.BOT_FILE).active.values)
+    assert rows[0][:2] == ("ticketId", "orderLineId") and rows[1][:2] == ("BOT JOB 777", "11")
+    off = tickets.raise_claims(None, "MAIN", {tickets.RNR: ["5"]}, tmp_path, False)
+    assert off == ["MAIN Return Not Received: 1 due (not raised: tickets off)"]

@@ -18,6 +18,26 @@ On demand: `/myntraspf`.
   FMCC. It waits on the hidden sheet `YOUNG IN TRANSIT` of the master (the portal reports only
   cover 30 days, so it would otherwise be lost) and moves to its account sheet on the first run
   after it turns 60 days old, is delivered or is received. OMSGuru checks the parked rows too.
+* **SPF tickets from the portal**: every run reads each account's SPF tickets (all statuses,
+  `api/spf/v2/getTickets`) as one more ticket report, so TICKET ID / STATUS follow the portal
+  without a hand-dropped Ticket1 (a rejection reason from Ticket1 is kept).
+* **Auto claims** (`tickets.py`), after the first engine run, on the SPF POLICY v5 timelines:
+  * *Return Not Received* (`RTS_ORDER_WAS_NEVER_DELIVERED`): delivered to us per Myntra, not
+    received; raised 4 to 7 days after the delivery date (`MYNTRA_SPF_RNR_AFTER_DAYS` /
+    `_MAX_DAYS`; policy: within 7 days).
+  * *Delayed Returns* (`DELAYED_DELIVERED_RETURN`): in transit or no return tracking; raised 61
+    to 120 days after the return / RTO creation date (`MYNTRA_SPF_DELAY_AFTER_DAYS` / `_MAX_DAYS`;
+    policy: after 60, up to 120).
+  * Only rows with no ticket (master TICKET ID or any portal ticket for the order line - the
+    policy allows one claim per order and treats repeats as fraud), a blank FINAL RETURN STATUS
+    (OMSGuru received results of this run included), PPMP (not SJIT / FBM) and no courier RETURN
+    POD. An account whose portal tickets could not be read gets no claims.
+  * Raised like the portal's bulk upload: an xlsx with one `OrderId` column (order line ids, max
+    500) put on the claims blob store (`file-manager/getUploadToken/spfJob`), then
+    `api/spf/createRnrBulkTickets`. The rows show TICKET ID `BOT JOB <job id>` / STATUS
+    `RAISED BY BOT` until the real ticket comes in on the next run.
+  * Live only with the repo variable `MYNTRA_SPF_TICKETS=1`; otherwise the report only counts
+    the claims due. At most `MYNTRA_SPF_TICKET_MAX` (500) per account and category per run.
 * A formula linking another workbook (e.g. `=VLOOKUP(G5,[1]Orders!$E:$F,2,)` pasted into a
   yellow column) reads as empty: written back it made Excel repair the file on every open.
 * **Return received**: ERP GRN, then **OMSGuru** (only rows whose FINAL RETURN STATUS is blank,

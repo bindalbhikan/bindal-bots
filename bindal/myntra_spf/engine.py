@@ -1433,6 +1433,10 @@ def collect(account, log):
             for oid, val in found.items():
                 prev = tickets.get(oid)
                 if prev is None or val[0] >= prev[0]:
+                    # Bot only: the portal's ticket list carries no rejection reason, so a
+                    # reason another report gave for the same ticket is kept
+                    if prev and val[3] is None and str(prev[1]) == str(val[1]):
+                        val = val[:3] + (prev[3],)
                     tickets[oid] = val
             stats['TICKET'] += n
             log('  %-58s TICKET   %6d' % (rel[:58], n))
@@ -2572,7 +2576,10 @@ def main():
             # report has not caught up with is left alone.
             t = tickets.get(norm(rec.get('order_line_id')))
             if t and t[1] is not None:
-                rec['TICKET ID'], rec['STATUS'], rec['REJECTION REASON'] = t[1], t[2], t[3]
+                same = str(rec.get('TICKET ID')) == str(t[1])
+                rec['TICKET ID'], rec['STATUS'] = t[1], t[2]
+                if t[3] is not None or not same:      # bot only: keep a known reason
+                    rec['REJECTION REASON'] = t[3]
 
             # Same idea for the payout: refreshed whenever the payment report has one
             # for this order line, left as it was when it does not. seller_order_id is
