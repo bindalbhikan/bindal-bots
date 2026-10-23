@@ -7,7 +7,8 @@
 * label prints per packer (ERP "Created By")
 
 ERP report 62's "Order ID" is the AWB for every portal (Myntra: the Myntra tracking number, which
-OMSGuru shows too); 20 Oct 2026: 1,599 of 1,764 prints matched. Telegram only, nothing written.
+OMSGuru shows too); 20 Oct 2026: 1,599 of 1,764 prints matched. Telegram only, nothing written;
+the AWBs are listed in the message when they fit in one, otherwise in an attached Excel.
 """
 from __future__ import annotations
 
@@ -29,7 +30,6 @@ from ..sla.pipeline import OPEN
 log = logging.getLogger("bindal.labels")
 
 CANCELLED = re.compile(r"^\s*cancel", re.I)
-MAX_LISTED = 25
 
 
 def first_prints(rows: list[dict]) -> dict[str, dict]:
@@ -59,38 +59,45 @@ def check(prints: dict[str, dict], lines: list[dict], since: datetime, rts_from:
             "no_label": no_label, "packers": packers, "packer_cancel": packer_cancel}
 
 
-def message(res: dict, names: dict[str, str], now: datetime, since: datetime, rts_from: date) -> str:
+def message(res: dict, names: dict[str, str], now: datetime, since: datetime, rts_from: date) -> list:
+    """A telegram report: each AWB list inline when the whole report fits in one message, else in an Excel."""
     def chan(l):
         return channel_line(names.get(l["channel"], l["channel"]))
 
-    def printed(items):
-        return [f"• {telegram.esc(l['awb'])} · {telegram.esc(chan(l))} · {telegram.esc(l['status'])} · "
-                f"{telegram.esc(str(p.get('Created By') or '?'))} {p['Created On']:%d %b %H:%M}"
-                for p, l in items[:MAX_LISTED]] + ([f"... and {len(items) - MAX_LISTED} more"]
-                                                   if len(items) > MAX_LISTED else [])
+    def printed(title, items, sheet):
+        return telegram.Listing(
+            title,
+            [f"• {telegram.esc(l['awb'])} · {telegram.esc(chan(l))} · {telegram.esc(l['status'])} · "
+             f"{telegram.esc(str(p.get('Created By') or '?'))} {p['Created On']:%d %b %H:%M}" for p, l in items],
+            [{"AWB": l["awb"], "Channel": chan(l), "OMSGuru status": l["status"],
+              "Printed by": str(p.get("Created By") or "?"), "Printed on": p["Created On"]} for p, l in items],
+            sheet)
 
     out = [f"🏷 <b>Label check · {now:%d %b, %I:%M %p}</b>",
            f"ERP label prints since {since:%d %b}: <b>{res['recent']}</b> · found in OMSGuru {res['matched']}"]
     if res["cancelled"]:
-        out += ["", f"🛑 <b>Printed for cancelled orders: {len(res['cancelled'])}</b> (check them; hold any not handed over yet)",
-                *printed(res["cancelled"])]
+        out += ["", printed(f"🛑 <b>Printed for cancelled orders: {len(res['cancelled'])}</b> "
+                            "(check them; hold any not handed over yet)", res["cancelled"], "Printed cancelled")]
     if res["not_rts"]:
-        out += ["", f"⏳ <b>Printed, not ready to ship in OMSGuru: {len(res['not_rts'])}</b>", *printed(res["not_rts"])]
+        out += ["", printed(f"⏳ <b>Printed, not ready to ship in OMSGuru: {len(res['not_rts'])}</b>",
+                            res["not_rts"], "Printed not RTS")]
     if res["no_label"]:
         per = Counter(chan(l) for l in res["no_label"])
         out += ["", f"❓ <b>Ready to ship in OMSGuru, no ERP label: {len(res['no_label'])}</b> "
                 f"(orders since {rts_from:%d %b}; packed outside the ERP, stock not taken off there)",
-                " · ".join(f"{telegram.esc(c)} {n}" for c, n in per.most_common()),
-                *[f"• {telegram.esc(l['awb'])} · {telegram.esc(chan(l))} · ordered {l['ordered']:%d %b}"
-                  for l in res["no_label"][:MAX_LISTED]],
-                *([f"... and {len(res['no_label']) - MAX_LISTED} more"] if len(res["no_label"]) > MAX_LISTED else [])]
+                telegram.Listing(
+                    " · ".join(f"{telegram.esc(c)} {n}" for c, n in per.most_common()),
+                    [f"• {telegram.esc(l['awb'])} · {telegram.esc(chan(l))} · ordered {l['ordered']:%d %b}"
+                     for l in res["no_label"]],
+                    [{"AWB": l["awb"], "Channel": chan(l), "Ordered": l["ordered"]} for l in res["no_label"]],
+                    "RTS no label")]
     if not (res["cancelled"] or res["not_rts"] or res["no_label"]):
         out += ["", "✅ No mismatch between ERP label prints and OMSGuru."]
     table = [f"{'Packer':<14}{'Labels':>7}{'Cncl':>6}",
              *[f"{p[:14]:<14}{n:>7}{res['packer_cancel'].get(p, 0):>6}" for p, n in res["packers"].most_common()]]
     out += ["", f"👷 <b>Packers since {since:%d %b}</b>", "<pre>" + telegram.esc("\n".join(table)) + "</pre>",
             "<i>Cncl = labels printed for orders now cancelled</i>"]
-    return "\n".join(out)
+    return out
 
 
 def run(args) -> int:
@@ -109,8 +116,7 @@ def run(args) -> int:
     res = check(prints, lines, since, rts_from)
     log.info("Labels: %d prints since %s, %d matched, %d cancelled, %d not RTS, %d RTS without label",
              res["recent"], since, res["matched"], len(res["cancelled"]), len(res["not_rts"]), len(res["no_label"]))
-    text = message(res, names, now, since, rts_from)
-    print(text) if args.no_telegram else telegram.send(text)
+    telegram.send_report(message(res, names, now, since, rts_from), "Label_check", dry=args.no_telegram)
     return 0
 
 

@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from bindal.core import telegram
 from bindal.sla import pipeline as p
 
 NAMES = {"45111": "BINDAL EXPORTS LIMITED - MYNTRA", "57285": "BINDAL EXPORTS LIMITED - Ajio Api"}
@@ -25,7 +26,7 @@ def test_message_counts_and_lists():
     risk = p.at_risk([_line("A1", "New", datetime(2026, 10, 20, 11, 59)),
                       _line("B2", "Packed", datetime(2026, 10, 20, 16, 0), "57285"),
                       _line("E5", "Processing", datetime(2026, 10, 19, 23, 0))], now)
-    text = p.message(risk, NAMES, now)
+    text = telegram.render(p.message(risk, NAMES, now))
     table = text.split("<pre>")[1].split("</pre>")[0].splitlines()
     assert table[1].split() == ["Myntra", "MAIN", "2", "0"] and table[-1].split() == ["Total", "2", "1"]
     assert "• A1 · New · <b>OVER</b>" in text and "• B2 · Packed · due 04:00 PM" in text

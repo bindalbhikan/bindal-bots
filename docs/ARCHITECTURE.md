@@ -81,7 +81,11 @@ docs/                       this file, PORTALS.md, bots/<bot>.md
 2. **The hand-run tool's rules unchanged** (`engine.py`), fed through a work folder laid out the
    way the tool expects. Verify the port: same inputs → same output as the tool, file by file.
 3. **Drive**: download the previous workbook, update, upload in place (change-checked).
-4. **Telegram**: a short phone-width table (≤ 25 characters per line), then the file if useful.
+4. **Telegram**: a short phone-width table (≤ 28 characters per `<pre>` line,
+   `telegram.PHONE_WIDTH`), then the file if useful. A list of AWBs / orders / SKUs is a
+   `telegram.Listing` sent with `telegram.send_report`: inline when the whole message fits in one
+   Telegram message, otherwise the message keeps the titles and counts and every row comes in one
+   attached Excel (a sheet per list). Text from the model goes through `telegram.md`.
    A source that fails is left out and named in the notes; never shown as zero.
 5. **Data must never be wrong.** A month or portal whose source data is incomplete is left out
    with a note (e.g. Flipkart returns older than ~4 months), not reported as real numbers.

@@ -72,8 +72,8 @@ def month_rows(rows: list[list]) -> list[dict]:
 
 
 def summary_text(rows: list[list], start: date, end: date, n: int) -> str:
-    """Month | G4 | marketing charge | % - fits a phone."""
-    lines = [f"{'Month':<9}{'G4':>9}{'Mkt':>8}{'%':>5}"]
+    """Month | G4 (lakh) | marketing charge | %, 28 wide: fits a phone."""
+    lines = [f"{'Month':<7}{'G4':>8}{'Mkt':>8}{'%':>5}"]
     for r in rows[1:]:
         month, g4, total = r[0], r[1], r[4] if len(r) > 4 else None
         pct = r[5] if len(r) > 5 else None
@@ -82,8 +82,8 @@ def summary_text(rows: list[list], start: date, end: date, n: int) -> str:
         mkt = f"{total:,.0f}" if isinstance(total, (int, float)) else "-"
         p = f"{pct * 100:.1f}" if isinstance(pct, (int, float)) and pct < 1 else (
             f"{pct:.1f}" if isinstance(pct, (int, float)) else "-")
-        label = f"{month:%b-%y}" if hasattr(month, "strftime") else str(month)[:9]
-        lines.append(f"{label:<9}{g4:>9,.0f}{mkt:>8}{p:>5}")
+        label = f"{month:%b-%y}" if hasattr(month, "strftime") else str(month)[:6]
+        lines.append(f"{label:<7}{g4 / 1e5:>7.2f}L{mkt:>8}{p:>5}")
     return "\n".join([f"📣 <b>AJIO ads / TOT gap</b>",
                       f"<i>SRM statement {start:%d %b %Y} - {end:%d %b %Y}, {n} lines</i>", "",
                       "<pre>" + telegram.esc("\n".join(lines)) + "</pre>", "",

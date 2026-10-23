@@ -131,7 +131,7 @@ def run(args) -> int:
         log.warning("Model not available: %s", exc)
         status, msg = "ALERT", plain_alert(info, why, errors, str(exc))
     if status == "ALERT":
-        text = (f"🤖 <b>Agent: {telegram.esc(info['workflow'] or '')}</b>\n\n{telegram.esc(msg)}\n\n"
+        text = (f"🤖 <b>Agent: {telegram.esc(info['workflow'] or '')}</b>\n\n{telegram.md(msg)}\n\n"
                 f"<a href=\"{info['url']}\">run {args.run_id}</a>")
         print(text) if args.no_telegram else telegram.send(text)
     else:

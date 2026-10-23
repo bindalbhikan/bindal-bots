@@ -1,6 +1,7 @@
 from collections import Counter
 from datetime import datetime
 
+from bindal.core import telegram
 from bindal.listings import pipeline as p
 
 CSV = b"""Channel ID,Channel Name,Channel Listing SKU Code,Channel Listing Id,Product SkuCode,Channel Listed Qty,Channel Max Listed Qty,Failure Reason
@@ -23,7 +24,7 @@ def test_check_and_message():
     assert list(res["over"]["sku"]) == ["A-1-L", "A-1-L"]
     assert list(res["capped"]["sku"]) == ["A-1-S"]
     assert list(res["failed"]["sku"]) == ["A-1-XL"]                 # the May failure is old
-    text = p.message(res, [], 1398, datetime(2026, 10, 20), 7)
+    text = telegram.render(p.message(res, [], 1398, datetime(2026, 10, 20), 7))
     assert "In stock, 0 on the channel: 1</b> (Myntra MAIN 1)" in text
     assert "• Myntra MAIN · A-1-L · listed 9, stock 8 · 2 listings" in text
     assert "Sync failures in the last 7 days: 1" in text and "• No Response from channel: 1" in text

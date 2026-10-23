@@ -64,15 +64,15 @@ def change(now: int, before: int) -> str:
 
 def table(gross: dict, canc: dict, day: date, before: date) -> str:
     lines = sorted(gross, key=lambda n: (ORDER.index(n) if n in ORDER else len(ORDER), n))
-    out = [f"{'Channel':<11}{format(day, '%d%b'):>6}{format(before, '%d%b'):>6}{'±':>6}"]
+    out = [f"{'Channel':<11}{format(day, '%d%b'):>6}{format(before, '%d%b'):>6}{'±':>5}"]   # 28 wide: a phone
     tot_now = tot_before = tot_cancel = 0
     for n in lines:
         now, prev = gross[n].get(day, 0), gross[n].get(before, 0)
         if not now and not prev:
             continue
         tot_now, tot_before, tot_cancel = tot_now + now, tot_before + prev, tot_cancel + canc.get(n, {}).get(day, 0)
-        out.append(f"{n[:11]:<11}{now:>6}{prev:>6}{change(now, prev):>6}")
-    out.append(f"{'Total':<11}{tot_now:>6}{tot_before:>6}{change(tot_now, tot_before):>6}")
+        out.append(f"{n[:11]:<11}{now:>6}{prev:>6}{change(now, prev):>5}")
+    out.append(f"{'Total':<11}{tot_now:>6}{tot_before:>6}{change(tot_now, tot_before):>5}")
     pct = f" ({tot_cancel * 100 // tot_now}%)" if tot_now else ""
     return "<pre>" + telegram.esc("\n".join(out)) + "</pre>" + f"\nCancelled yesterday: <b>{tot_cancel}</b>{pct}"
 
@@ -138,7 +138,7 @@ def run(args) -> int:
     note = comment(f"Yesterday {day:%a %d %b}, compared with {before:%a %d %b}:\n{plain}") if not args.no_comment else ""
     text = "\n".join([f"☀️ <b>Morning report · {day:%a %d %b}</b>",
                       f"<i>yesterday vs last {before:%a} ({before:%d %b}), units</i>", "", body,
-                      *(["", "🧠 " + telegram.esc(note)] if note else []),
+                      *(["", "🧠 " + telegram.md(note)] if note else []),
                       *(["", "⚠️ " + "\n⚠️ ".join(telegram.esc(n) for n in notes)] if notes else [])])
     log.info("Morning report: %s", {n: v.get(day, 0) for n, v in gross.items()})
     print(text) if args.no_telegram else telegram.send(text)

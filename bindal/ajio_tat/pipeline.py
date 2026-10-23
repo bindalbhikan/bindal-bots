@@ -337,11 +337,12 @@ def telegram_report(df):
     return "\n".join(lines)
 
 
-def pickup_pending_messages(df, now=None) -> list[str]:
-    """Second Telegram message: every processed AWB still waiting for pickup (last TRACK_DAYS days),
+def pickup_pending_report(df, now=None) -> list:
+    """Third Telegram message: every processed AWB still waiting for pickup (last TRACK_DAYS days),
     TAT passed ("Over") first, then still within TAT ("Due"), with a short ready-to-copy mail
-    for the courier / AJIO. The mail is plain text (wraps on a phone, pastes cleanly); only the
-    AWB list is a table. Empty list when nothing is waiting."""
+    for the courier / AJIO. The mail is plain text (wraps on a phone, pastes cleanly); the AWB list
+    is a narrow table when it fits in the one message, otherwise every AWB comes in an attached
+    Excel (to forward with the mail). A telegram report; [] when nothing is waiting."""
     now = now or pd.Timestamp.now()
     since = now.normalize() - pd.Timedelta(days=num("TRACK_DAYS", 15))
     pend = df[awaiting_pickup_mask(df) & (df["Order Time"] >= since)].copy()
@@ -351,27 +352,31 @@ def pickup_pending_messages(df, now=None) -> list[str]:
     pend = pend.sort_values(["_over", "Courier", "RTS Time"], ascending=[False, True, True])
     n_over = int(pend["_over"].sum())
     pob = env("POB_ID", "DV00348890")
-    rows = [f"{str(r['AWB'])[:15]:<15} {short_courier(r['Courier'])[:7]:<7} {'Over' if r['_over'] else 'Due'}"
+    table = [f"{str(r['AWB'])[:15]:<15} {short_courier(r['Courier'])[:7]:<7} {'Over' if r['_over'] else 'Due'}"
+             for _, r in pend.iterrows()]
+
+    def when(v):
+        return None if pd.isna(v) else pd.Timestamp(v).to_pydatetime()
+
+    def text(v):
+        return "" if pd.isna(v) else str(v)
+
+    rows = [{"AWB": text(r["AWB"]), "Courier": text(r["Courier"]), "TAT": "Over" if r["_over"] else "Due",
+             "Order ID": text(r["Order ID"]), "Order Time": when(r["Order Time"]),
+             "Ready (RTS)": when(r["RTS Time"]), "Pickup Deadline": when(r["Dispatch Deadline"])}
             for _, r in pend.iterrows()]
-    per_msg = 100  # keeps each message under Telegram's 4096-character limit
-    msgs = []
-    for i in range(0, len(rows), per_msg):
-        part = rows[i:i + per_msg]
-        first, last = i == 0, i + per_msg >= len(rows)
-        head = ([f"📮 <b>Pickup Pending · {len(pend)} AWB</b>",
-                 f"🔴 Over (TAT passed) {n_over} · 🟡 Due {len(pend) - n_over}",
-                 "",
-                 f"<b>Subject:</b> Pickup Pending - POB ID {pob} - {len(pend)} shipments",
-                 "",
-                 "Dear Team,",
-                 "Below shipments are packed and ready, but pickup is still pending. "
-                 "Kindly arrange the pickup today on priority.",
-                 f"POB ID: {pob}"] if first
-                else [f"📮 <b>Pickup Pending</b> (contd. {i // per_msg + 1})"])
-        table = "<pre>" + telegram.esc(f"{'AWB':<15} {'Courier':<7} TAT\n" + "\n".join(part)) + "</pre>"
-        tail = ["Regards,", "Bindal Exports"] if last else []
-        msgs.append("\n".join(head + [table] + tail))
-    return msgs
+    return [f"📮 <b>Pickup Pending · {len(pend)} AWB</b>",
+            f"🔴 Over (TAT passed) {n_over} · 🟡 Due {len(pend) - n_over}",
+            "",
+            f"<b>Subject:</b> Pickup Pending - POB ID {pob} - {len(pend)} shipments",
+            "",
+            "Dear Team,",
+            "Below shipments are packed and ready, but pickup is still pending. "
+            "Kindly arrange the pickup today on priority.",
+            f"POB ID: {pob}",
+            telegram.Listing("", ["<pre>" + telegram.esc(f"{'AWB':<15} {'Courier':<7} TAT\n" + "\n".join(table)) + "</pre>"],
+                             rows, "Pickup pending"),
+            "Regards,", "Bindal Exports"]
 
 
 SCORE_COMMENT = """You are the e-commerce manager of Bindal Exports, an AJIO seller. Below is the courier
@@ -410,7 +415,7 @@ def courier_scorecard(df: pd.DataFrame, now: pd.Timestamp | None = None) -> str:
     for courier, g in sorted(live.groupby("_c"), key=lambda kv: -len(kv[1])):
         y = pct(g[g["_day"] == yday])
         rows.append(f"{courier[:7]:<7}{len(g):>5}{int(g['_late'].sum()):>5}"
-                    f"{(str(pct(g)) + '%') if pct(g) is not None else '-':>6}{(str(y) + '%') if y is not None else '-':>6}")
+                    f"{(str(pct(g)) + '%') if pct(g) is not None else '-':>5}{(str(y) + '%') if y is not None else '-':>6}")
         streak = []
         for d in reversed(days):
             gd = g[g["_day"] == d]
@@ -422,8 +427,8 @@ def courier_scorecard(df: pd.DataFrame, now: pd.Timestamp | None = None) -> str:
             alerts.append(f"⚠️ {courier}: pickup on time under {limit:.0f}% for {len(streak)} days in a row "
                           f"({', '.join(f'{p}%' for p in reversed(streak))})")
     tot = pct(live)
-    table = [f"{'Courier':<7}{'Ord':>5}{'Late':>5}{'OnT%':>6}{format(yday, '%d%b'):>6}", *rows,
-             f"{'Total':<7}{len(live):>5}{int(live['_late'].sum()):>5}{(str(tot) + '%') if tot is not None else '-':>6}"]
+    table = [f"{'Courier':<7}{'Ord':>5}{'Late':>5}{'OnT%':>5}{format(yday, '%d%b'):>6}", *rows,
+             f"{'Total':<7}{len(live):>5}{int(live['_late'].sum()):>5}{(str(tot) + '%') if tot is not None else '-':>5}"]
     bad = live[(live["_day"] == yday) & (live["TAT Result"] == "NOT CORRECT")]
     ours = int((bad["Process Status"] != "On Time").sum())
     lines = [f"🚚 <b>AJIO Courier Pickup · {first:%d %b} - {yday:%d %b}</b>",
@@ -440,7 +445,7 @@ def courier_scorecard(df: pd.DataFrame, now: pd.Timestamp | None = None) -> str:
         note = (llm.chat([{"role": "system", "content": SCORE_COMMENT}, {"role": "user", "content": plain}],
                          max_tokens=1200)["choices"][0]["message"].get("content") or "").strip()
         if note:
-            lines += ["", "🧠 " + telegram.esc(note)]
+            lines += ["", "🧠 " + telegram.md(note)]
     except Exception as exc:  # noqa: BLE001 - the scorecard goes out without the lines
         log.warning("No scorecard comment: %s", exc)
     return "\n".join(lines)
@@ -588,8 +593,9 @@ def run(args) -> int:
         telegram.send(report)
         if score:
             telegram.send(score)
-        for msg in pickup_pending_messages(df):
-            telegram.send(msg)
+        pending = pickup_pending_report(df)
+        if pending:
+            telegram.send_report(pending, "AJIO_pickup_pending")
     dashboard.publish("ajio_tat", {**dashboard_data(df), "lookup_errors": len(errors)})
     print(df["TAT Result"].value_counts().to_string())
     return 0

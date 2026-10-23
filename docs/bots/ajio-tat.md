@@ -34,4 +34,6 @@
   on-time % and the last day's %; that day's NOT CORRECT split into our side (processing late) and
   the courier's (pickup late); an alert for a courier under `COURIER_ALERT_PCT` (70) % on time
   `COURIER_ALERT_DAYS` (3) days in a row (days with 5+ orders); 2 lines from the agent's free
-  model (left out when it is not available).
+  model (left out when it is not available). Pickups pending: a ready-to-copy mail with the AWB
+  table when it fits in one message; with more AWBs the mail comes alone and every AWB (courier,
+  Over / Due, order time, RTS, deadline) is in the attached `AJIO_pickup_pending_*.xlsx`.

@@ -83,22 +83,32 @@ def mis(lines: list[dict], names: dict[str, str], now_days: list[date], prev_day
 
 
 def message(rows: list[dict], now_days: list[date], prev_days: list[date], rates: dict) -> str:
-    t = [f"{'Channel':<11}{'Value':>7}{'±':>6}{'Units':>6}{'Cn%':>4}"]
+    # narrow tables (28 characters at most) instead of one wide one: no wrapping on a phone
+    t = [f"{'Channel':<11}{'Value':>8}{'±':>6}"]
+    u = [f"{'Channel':<11}{'Units':>6}{'±':>6}{'Cn%':>5}"]
     for r in rows:
-        t.append(f"{r['channel'][:11]:<11}{rupees(r['value']):>7}{change(round(r['value']), round(r['value_prev'])):>6}"
-                 f"{r['units']:>6}{r['cancel_pct']:>4}")
+        t.append(f"{r['channel'][:11]:<11}{rupees(r['value']):>8}{change(round(r['value']), round(r['value_prev'])):>6}")
+        u.append(f"{r['channel'][:11]:<11}{r['units']:>6}{change(r['units'], r['units_prev']):>6}{r['cancel_pct']:>5}")
     tv, tp = sum(r["value"] for r in rows), sum(r["value_prev"] for r in rows)
-    t.append(f"{'Total':<11}{rupees(tv):>7}{change(round(tv), round(tp)):>6}{sum(r['units'] for r in rows):>6}")
+    t.append(f"{'Total':<11}{rupees(tv):>8}{change(round(tv), round(tp)):>6}")
+    tu, tup = sum(r["units"] for r in rows), sum(r["units_prev"] for r in rows)
+    u.append(f"{'Total':<11}{tu:>6}{change(tu, tup):>6}")
     out = [f"📑 <b>Monthly MIS · {now_days[0]:%B %Y}</b>",
            f"<i>against {prev_days[0]:%B}; order value by order date (OMSGuru), cancelled included in Value</i>",
+           "", "<b>Order value</b>",
            "<pre>" + telegram.esc("\n".join(t)) + "</pre>",
-           f"Sale after cancels: <b>{rupees(sum(r['net_sale'] for r in rows))}</b>"]
+           f"Sale after cancels: <b>{rupees(sum(r['net_sale'] for r in rows))}</b>",
+           "", "<b>Units</b> (Cn% = cancelled)",
+           "<pre>" + telegram.esc("\n".join(u)) + "</pre>"]
     priced = [r for r in rows if "net" in r]
     if priced:
-        n = [f"{'Channel':<11}{'Sale':>7}{'Comm':>7}{'Ship':>6}{'Net':>7}"]
-        n += [f"{r['channel'][:11]:<11}{rupees(r['net_sale']):>7}{rupees(r['commission']):>7}"
-              f"{rupees(r['shipping']):>6}{rupees(r['net']):>7}" for r in priced]
-        out += ["", "<b>After commission and shipping</b> (MIS_RATES)", "<pre>" + telegram.esc("\n".join(n)) + "</pre>"]
+        def lakh(v: float) -> str:
+            return f"{v / 1e5:.1f}L" if abs(v) >= 1e5 else f"{v / 1e3:.0f}K"
+        n = [f"{'Channel':<11}{'Sale':>6}{'Comm':>5}{'Net':>6}"]
+        n += [f"{r['channel'][:11]:<11}{lakh(r['net_sale']):>6}{lakh(r['commission']):>5}{lakh(r['net']):>6}"
+              for r in priced]
+        out += ["", "<b>After commission and shipping</b> (MIS_RATES)", "<pre>" + telegram.esc("\n".join(n)) + "</pre>",
+                f"Shipping: {rupees(sum(r['shipping'] for r in priced))} · Net = Sale - Comm - Shipping"]
     missing = [r["channel"] for r in rows if "net" not in r]
     if missing:
         out.append(f"<i>No commission / shipping rate for: {telegram.esc(', '.join(missing))} "
@@ -126,8 +136,7 @@ def run(args) -> int:
         note = (llm.chat([{"role": "system", "content": PLAN}, {"role": "user", "content": plain}],
                          max_tokens=2500)["choices"][0]["message"].get("content") or "").strip()
         if note:
-            from ..agent.chat import to_telegram
-            text += "\n\n🧭 <b>Plan for this month</b>\n" + to_telegram(note)
+            text += "\n\n🧭 <b>Plan for this month</b>\n" + telegram.md(note)
     except Exception as exc:  # noqa: BLE001
         log.warning("No plan: %s", exc)
     log.info("MIS: %d channels, %d order lines", len(rows), len(lines))

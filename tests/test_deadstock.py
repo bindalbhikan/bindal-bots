@@ -9,5 +9,6 @@ def test_classify_dead_and_slow():
     dead, slow = p.classify(stock, sold, days=90, min_stock=5, slow_days=180)
     assert [r["sku"] for r in dead] == ["A-1-M"]           # A-1-L has under 5 in stock
     assert [r["sku"] for r in slow] == ["B-2-S"] and slow[0]["days_left"] == 300
-    lines = p.section("Dead", dead, slow=False)
-    assert lines[0] == "<b>Dead: 20 units in 1 SKUs, 1 styles</b>" and "• <b>A-1</b> 20 units · M 20" in lines[1]
+    part = p.section("Dead", dead, slow=False)
+    assert part.title == "<b>Dead: 20 units in 1 SKUs, 1 styles</b>" and "• <b>A-1</b> 20 units · M 20" in part.lines[0]
+    assert part.rows == [{"Style": "A-1", "SKU": "A-1-M", "Size": "M", "Stock": 20, "Sold": 0}]

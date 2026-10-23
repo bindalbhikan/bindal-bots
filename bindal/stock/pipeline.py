@@ -26,7 +26,7 @@ log = logging.getLogger("bindal.stock")
 
 SIZE = re.compile(r"^(XXS|XS|S|M|L|XL|XXL|XXXL|[2-6]XL|FS|F|\d{2,3})$", re.I)
 SIZE_ORDER = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "2XL", "XXXL", "3XL", "4XL", "5XL", "6XL", "FS", "F"]
-MAX_STYLES = 30
+
 
 
 def size_key(size: str):
@@ -73,7 +73,8 @@ def at_risk(sold: Counter, stock: Counter, days: int, min_sold: int, cover_days:
     return sorted(out, key=lambda r: (-r["per_day"], r["sku"]))
 
 
-def message(risk: list[dict], days: int, cover_days: float, today: date) -> str:
+def message(risk: list[dict], days: int, cover_days: float, today: date) -> list:
+    """A telegram report: the styles inline when they fit in one message, else every SKU in an Excel."""
     styles: dict[str, list[dict]] = defaultdict(list)
     for r in risk:
         styles[style_size(r["sku"])[0]].append(r)
@@ -83,18 +84,21 @@ def message(risk: list[dict], days: int, cover_days: float, today: date) -> str:
     out = [f"📦 <b>Stock-out alert · {today:%d %b}</b>",
            f"<i>SKUs selling in the last {days} days with {cover_days:g} days of stock or less</i>",
            f"Out of stock: <b>{oos}</b> SKUs (about {lost:.0f} units a day not sold) · "
-           f"running out: <b>{len(risk) - oos}</b>", ""]
-    for style, items in ranked[:MAX_STYLES]:
+           f"running out: <b>{len(risk) - oos}</b>"]
+    lines, rows = [], []
+    for style, items in ranked:
+        items = sorted(items, key=lambda r: size_key(style_size(r["sku"])[1]))
         sizes = ", ".join(f"{style_size(r['sku'])[1] or r['sku']} {r['stock']}"
-                          + (f" ({r['days_left']:.1f}d)" if r["stock"] else " (OUT)")
-                          for r in sorted(items, key=lambda r: size_key(style_size(r["sku"])[1])))
-        out.append(f"• <b>{telegram.esc(style)}</b> · sells {sum(r['per_day'] for r in items):.1f}/day · "
-                   f"{telegram.esc(sizes)}")
-    if len(ranked) > MAX_STYLES:
-        out.append(f"... and {len(ranked) - MAX_STYLES} more styles")
-    out += ["", "<i>size stock (days left at the current pace); OUT = 0 in stock. "
+                          + (f" ({r['days_left']:.1f}d)" if r["stock"] else " (OUT)") for r in items)
+        lines.append(f"• <b>{telegram.esc(style)}</b> · sells {sum(r['per_day'] for r in items):.1f}/day · "
+                     f"{telegram.esc(sizes)}")
+        rows += [{"Style": style, "SKU": r["sku"], "Size": style_size(r["sku"])[1], "Stock": r["stock"],
+                  f"Sold {days}d": r["sold"], "Per day": round(r["per_day"], 2),
+                  "Days left": round(r["days_left"], 1) if r["stock"] else "OUT"} for r in items]
+    out += [telegram.Listing("", lines, rows, "Stock-out"),
+            "", "<i>size stock (days left at the current pace); OUT = 0 in stock. "
                 "Sold = every channel, cancelled orders left out.</i>"]
-    return "\n".join(out)
+    return out
 
 
 def run(args) -> int:
@@ -117,8 +121,7 @@ def run(args) -> int:
     if not risk:
         log.info("Nothing at risk: nothing sent")
         return 0
-    text = message(risk, days, cover, today)
-    print(text) if args.no_telegram else telegram.send(text)
+    telegram.send_report(message(risk, days, cover, today), "Stock_out", dry=args.no_telegram)
     return 0
 
 

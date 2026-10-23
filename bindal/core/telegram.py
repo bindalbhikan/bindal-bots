@@ -5,6 +5,11 @@ on line boundaries and any HTML tag still open at a cut (<pre>, <b>, <i> ...)
 is closed and reopened in the next part, so Telegram never rejects a part for
 broken HTML. If Telegram still refuses the HTML, the part is sent as plain text
 instead of being lost.
+
+A report with long lists (AWBs, orders, SKUs) is built as blocks: text and Listing. When the
+whole report fits in one message the lists go inline; otherwise the message keeps each list's
+title and count and every row goes to one attached Excel, a sheet per list (send_report).
+<pre> tables stay within PHONE_WIDTH characters a line so they do not wrap on a phone.
 """
 from __future__ import annotations
 
@@ -12,17 +17,38 @@ import html
 import logging
 import os
 import re
+import tempfile
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 
 import requests
 
 log = logging.getLogger(__name__)
 MAX_LEN = 4000  # Telegram hard limit is 4096
 API = "https://api.telegram.org/bot{token}/{method}"
+PHONE_WIDTH = 28  # monospace characters a <pre> line shows on a phone without wrapping
 TAG = re.compile(r"<(/?)(b|strong|i|em|u|s|code|pre|a)(\s[^>]*)?>", re.I)
 
 
 def esc(value) -> str:
     return html.escape(str(value))
+
+
+def md(text: str) -> str:
+    """A model's light markdown as Telegram HTML: **bold**, `code`, "- " / "* " bullets, # headings,
+    and | table | rows | as "a · b" lines (a table does not fit a phone); everything else escaped."""
+    out = []
+    for line in esc(text).splitlines():
+        if re.fullmatch(r"\s*\|?[\s:|-]*-[\s:|-]*\|?\s*", line):        # |---|---| separator row
+            continue
+        if line.strip().startswith("|"):
+            line = " · ".join(c.strip() for c in line.strip().strip("|").split("|") if c.strip())
+        line = re.sub(r"^\s{0,3}#{1,6}\s*(.+)$", r"<b>\1</b>", line)
+        line = re.sub(r"^(\s*)[-*]\s+", r"\1• ", line)
+        line = re.sub(r"`([^`]+)`", r"<code>\1</code>", line)
+        out.append(re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", line).rstrip())
+    return "\n".join(out)
 
 
 def _config() -> tuple[str, list[str]]:
@@ -144,3 +170,84 @@ def send_file(path, caption: str = "", as_document: bool = False) -> bool:
 
 def send_document(path, caption: str = "") -> bool:
     return send_file(path, caption, as_document=True)
+
+
+# ------------------------------------------------------------------ reports with long lists
+
+@dataclass
+class Listing:
+    """A list inside a report: `lines` (HTML) inline when the report fits in one message, otherwise
+    `rows` (column -> value) on the Excel sheet `sheet`. `title` stays in the message either way."""
+    title: str
+    lines: list[str]
+    rows: list[dict] = field(default_factory=list)
+    sheet: str = "List"
+
+
+def render(report: list, inline: bool = True) -> str:
+    """The report's text: lists inline, or only their titles with a pointer to the Excel."""
+    out = []
+    for block in report:
+        if not isinstance(block, Listing):
+            out.append(block)
+        elif inline or not block.rows:
+            out += [block.title, *block.lines]
+        else:
+            out += [block.title, f"📎 all {len(block.rows)} in the Excel below (sheet {esc(block.sheet)})"]
+    return "\n".join(out)
+
+
+def fits(report: list) -> bool:
+    return len(render(report)) <= MAX_LEN
+
+
+def write_xlsx(report: list, path) -> Path | None:
+    """One sheet per list with rows: bold frozen header, columns as wide as their text."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    lists = [b for b in report if isinstance(b, Listing) and b.rows]
+    if not lists:
+        return None
+    wb = Workbook()
+    wb.remove(wb.active)
+    for block in lists:
+        name, n = re.sub(r"[\\/*?:\[\]]", "-", block.sheet)[:31] or "List", 2
+        while name in wb.sheetnames:
+            name, n = f"{block.sheet[:28]} {n}", n + 1
+        ws = wb.create_sheet(name)
+        cols = list(dict.fromkeys(k for r in block.rows for k in r))
+        ws.append(cols)
+        for r in block.rows:
+            ws.append([r.get(c) for c in cols])
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        ws.freeze_panes = "A2"
+        for i, c in enumerate(cols, 1):
+            width = max(len(str(c)), *(len(str(r.get(c) if r.get(c) is not None else "")) for r in block.rows))
+            ws.column_dimensions[ws.cell(1, i).column_letter].width = min(width + 2, 60)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+    return path
+
+
+def send_report(report: list, name: str, dry: bool = False) -> bool:
+    """Send a report of text and Listing blocks: one message with the lists inline when it fits,
+    otherwise the message with the lists' titles plus an Excel (name_YYYY-MM-DD_HHMM.xlsx) of every row.
+    dry: print the message and keep the Excel locally instead of sending."""
+    if fits(report):
+        text = render(report)
+        print(text) if dry else None
+        return True if dry else send(text)
+    text = render(report, inline=False)
+    path = write_xlsx(report, Path(tempfile.mkdtemp(prefix="tg_")) / f"{name}_{datetime.now():%Y-%m-%d_%H%M}.xlsx")
+    if dry:
+        print(text)
+        print(f"[Excel: {path}]")
+        return True
+    ok = send(text)
+    if path:
+        lists = [b for b in report if isinstance(b, Listing) and b.rows]
+        caption = f"📎 <b>{esc(name.replace('_', ' '))}</b> · " + " · ".join(f"{esc(b.sheet)} {len(b.rows)}" for b in lists)
+        ok = send_document(path, caption) and ok
+    return ok

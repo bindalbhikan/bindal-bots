@@ -6,7 +6,8 @@ sync on only.
 * capped at 0 (Max Listed Qty 0) while in stock: on purpose or forgotten
 * sync failures of the last LISTING_FAIL_DAYS (7) days, the Failed tab, and the UnManaged count
 
-Telegram only, nothing written.
+Telegram only, nothing written. The SKUs are listed in the message when they fit in one,
+otherwise every one of them comes in an attached Excel.
 """
 from __future__ import annotations
 
@@ -29,7 +30,6 @@ from ..stock.pipeline import stock_of
 log = logging.getLogger("bindal.listings")
 
 FAIL_AT = re.compile(r"^([A-Z][a-z]+ \d{1,2}, \d{4} \d{1,2}:\d{2}:\d{2} [AP]M)")
-LISTED = 15                                 # rows listed per problem
 
 
 def table_of(blob: bytes) -> pd.DataFrame:
@@ -66,39 +66,47 @@ def check(listings: pd.DataFrame, stock: Counter, active: set[str], since: datet
     }
 
 
-def message(res: dict, failed_tab: list[dict], unmanaged: int, now: datetime, days: int) -> str:
+def message(res: dict, failed_tab: list[dict], unmanaged: int, now: datetime, days: int) -> list:
+    """A telegram report: the SKU lists inline when the whole report fits in one message, else in an Excel."""
     def per_channel(part: pd.DataFrame) -> str:
         return " · ".join(f"{telegram.esc(c)} {n}" for c, n in part["channel"].value_counts().items())
 
-    def rows(part: pd.DataFrame, show) -> list[str]:
-        """One line per channel + SKU (a SKU can have several listings on one channel)."""
+    def listing(title: str, part: pd.DataFrame, show, sheet: str) -> telegram.Listing:
+        """One line per channel + SKU (a SKU can have several listings on one channel); the Excel
+        has every listing."""
         n = part.groupby(["channel", "sku"]).size()
         uniq = part.drop_duplicates(["channel", "sku"])
-        return [f"• {telegram.esc(r.channel)} · {telegram.esc(r.sku)} · {show(r)}"
-                + (f" · {n[(r.channel, r.sku)]} listings" if n[(r.channel, r.sku)] > 1 else "")
-                for r in uniq.head(LISTED).itertuples()] + (
-                    [f"... and {len(uniq) - LISTED} more"] if len(uniq) > LISTED else [])
+        lines = [f"• {telegram.esc(r.channel)} · {telegram.esc(r.sku)} · {show(r)}"
+                 + (f" · {n[(r.channel, r.sku)]} listings" if n[(r.channel, r.sku)] > 1 else "")
+                 for r in uniq.itertuples()]
+        rows = [{"Channel": r.channel, "SKU": r.sku, "Listing": r.listing, "Stock": int(r.stock),
+                 "Listed": int(r.listed), "Max listed": int(r.max) if r.max >= 0 else None} for r in part.itertuples()]
+        return telegram.Listing(title, lines, rows, sheet)
 
     out = [f"🏪 <b>Listing health · {now:%d %b}</b>",
            f"<i>{res['listings']:,} listings on channels with inventory sync on, against OMSGuru stock</i>"]
-    nl, ov = res["not_listed"], res["over"].sort_values("listed", ascending=False)
-    out += ["", f"📭 <b>In stock, 0 on the channel: {len(nl)}</b>" + (f" ({per_channel(nl)})" if len(nl) else "")]
-    out += rows(nl.sort_values("stock", ascending=False), lambda r: f"stock {r.stock}")
-    out += ["", f"⚠️ <b>Listed more than in stock: {len(ov)}</b>" + (f" ({per_channel(ov)})" if len(ov) else ""),
-            *rows(ov, lambda r: f"listed {r.listed}, stock {r.stock}")]
+    nl, ov = res["not_listed"].sort_values("stock", ascending=False), res["over"].sort_values("listed", ascending=False)
+    out += ["", listing(f"📭 <b>In stock, 0 on the channel: {len(nl)}</b>" + (f" ({per_channel(nl)})" if len(nl) else ""),
+                        nl, lambda r: f"stock {r.stock}", "In stock not listed")]
+    out += ["", listing(f"⚠️ <b>Listed more than in stock: {len(ov)}</b>" + (f" ({per_channel(ov)})" if len(ov) else ""),
+                        ov, lambda r: f"listed {r.listed}, stock {r.stock}", "Listed over stock")]
     fl = res["failed"]
     out += ["", f"❌ <b>Sync failures in the last {days} days: {len(fl)}</b>" + (f" ({per_channel(fl)})" if len(fl) else "")]
     reasons = Counter(re.sub(r"^.*?[AP]M:", "", f).strip()[:70] for f in fl["failure"])
     out += [f"• {telegram.esc(r)}: {n}" for r, n in reasons.most_common(5)]
     if failed_tab:
-        out += ["", f"🚫 <b>Failed listings tab: {len(failed_tab)}</b>",
-                *[f"• {telegram.esc(channel_line(f['channel']))} · {telegram.esc(f['sku'])} · "
-                  f"{telegram.esc(re.sub(r'^.*?[AP]M:', '', f['failure'])[:80])}" for f in failed_tab[:LISTED]]]
+        out += ["", telegram.Listing(
+            f"🚫 <b>Failed listings tab: {len(failed_tab)}</b>",
+            [f"• {telegram.esc(channel_line(f['channel']))} · {telegram.esc(f['sku'])} · "
+             f"{telegram.esc(re.sub(r'^.*?[AP]M:', '', f['failure'])[:80])}" for f in failed_tab],
+            [{"Channel": channel_line(f["channel"]), "SKU": f["sku"],
+              "Failure": re.sub(r"^.*?[AP]M:", "", f["failure"]).strip()} for f in failed_tab],
+            "Failed tab")]
     cp = res["capped"]
     out += ["", f"🔒 Capped at 0 while in stock: {len(cp)}" + (f" ({per_channel(cp)})" if len(cp) else ""),
             f"🔗 Not mapped to an OMSGuru SKU (UnManaged): {unmanaged:,}",
             "", "<i>Fix: push inventory / check the mapping for 📭, re-sync or lower the listed qty for ⚠️.</i>"]
-    return "\n".join(out)
+    return out
 
 
 def run(args) -> int:
@@ -124,8 +132,7 @@ def run(args) -> int:
     log.info("Listings: %d checked, %d in stock not listed, %d over stock, %d capped, %d failed lately, "
              "%d in the Failed tab, %d unmanaged", res["listings"], len(res["not_listed"]), len(res["over"]),
              len(res["capped"]), len(res["failed"]), len(failed_tab), unmanaged)
-    text = message(res, failed_tab, unmanaged, now, days)
-    print(text) if args.no_telegram else telegram.send(text)
+    telegram.send_report(message(res, failed_tab, unmanaged, now, days), "Listing_health", dry=args.no_telegram)
     return 0
 
 

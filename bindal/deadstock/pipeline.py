@@ -5,7 +5,8 @@ DEAD_SALE_DAYS (90) complete order days, every channel, cancelled lines left out
 * dead: DEAD_MIN_STOCK (5)+ in stock and nothing sold in those days
 * slow: sold something, but the stock lasts DEAD_SLOW_DAYS (180)+ days at that pace
 Listed by style, most units first, with a few lines from the agent's free model on what to do
-(liquidate, bundle, push on a channel). Telegram only, nothing written.
+(liquidate, bundle, push on a channel). Telegram only, nothing written; the styles are listed in
+the message when they fit in one, otherwise every SKU comes in an attached Excel.
 """
 from __future__ import annotations
 
@@ -23,7 +24,6 @@ from ..stock.pipeline import size_key, sold_of, stock_of, style_size
 
 log = logging.getLogger("bindal.deadstock")
 
-MAX_STYLES = 25
 COMMENT = """You are the e-commerce head of Bindal Exports (women's apparel on Myntra, AJIO, Flipkart,
 Amazon, Meesho, Nykaa). Below is this month's dead stock (in stock, nothing sold in 90 days) and slow
 stock (more than 180 days of stock at the current pace), by style. Write 3 short lines for the owner
@@ -56,17 +56,19 @@ def by_style(items: list[dict]) -> list[tuple[str, int, list[dict]]]:
     return sorted(((s, sum(r["stock"] for r in rs), rs) for s, rs in styles.items()), key=lambda t: -t[1])
 
 
-def section(title: str, items: list[dict], slow: bool) -> list[str]:
+def section(title: str, items: list[dict], slow: bool) -> telegram.Listing:
     styles = by_style(items)
-    out = [f"<b>{title}: {sum(r['stock'] for r in items)} units in {len(items)} SKUs, {len(styles)} styles</b>"]
-    for style, units, rs in styles[:MAX_STYLES]:
-        sizes = ", ".join(f"{style_size(r['sku'])[1] or r['sku']} {r['stock']}"
-                          for r in sorted(rs, key=lambda r: size_key(style_size(r["sku"])[1])))
+    lines, rows = [], []
+    for style, units, rs in styles:
+        rs = sorted(rs, key=lambda r: size_key(style_size(r["sku"])[1]))
+        sizes = ", ".join(f"{style_size(r['sku'])[1] or r['sku']} {r['stock']}" for r in rs)
         extra = f" · sold {sum(r['sold'] for r in rs)}" if slow else ""
-        out.append(f"• <b>{telegram.esc(style)}</b> {units} units{extra} · {telegram.esc(sizes)}")
-    if len(styles) > MAX_STYLES:
-        out.append(f"... and {len(styles) - MAX_STYLES} more styles")
-    return out
+        lines.append(f"• <b>{telegram.esc(style)}</b> {units} units{extra} · {telegram.esc(sizes)}")
+        rows += [{"Style": style, "SKU": r["sku"], "Size": style_size(r["sku"])[1], "Stock": r["stock"],
+                  "Sold": r["sold"], **({"Days of stock": round(r["days_left"])} if slow else {})} for r in rs]
+    return telegram.Listing(
+        f"<b>{title}: {sum(r['stock'] for r in items)} units in {len(items)} SKUs, {len(styles)} styles</b>",
+        lines, rows, "Slow" if slow else "Dead")
 
 
 def run(args) -> int:
@@ -88,20 +90,19 @@ def run(args) -> int:
              len(slow), sum(r["stock"] for r in slow))
     out = [f"🧊 <b>Dead and slow stock · {today:%B %Y}</b>",
            f"<i>in stock against units sold in the last {days} days, every channel</i>", ""]
-    out += section(f"Dead (nothing sold in {days} days)", dead, slow=False) if dead else ["No dead stock."]
-    out += [""] + (section(f"Slow ({num('DEAD_SLOW_DAYS', 180):.0f}+ days of stock)", slow, slow=True) if slow
-                   else ["No slow stock."])
-    text = "\n".join(out)
+    out.append(section(f"Dead (nothing sold in {days} days)", dead, slow=False) if dead else "No dead stock.")
+    out += ["", section(f"Slow ({num('DEAD_SLOW_DAYS', 180):.0f}+ days of stock)", slow, slow=True) if slow
+            else "No slow stock."]
     try:
         from ..agent import llm
-        plain = text.replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "")
+        plain = telegram.render(out).replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "")
         note = (llm.chat([{"role": "system", "content": COMMENT}, {"role": "user", "content": plain[:12000]}],
                          max_tokens=1500)["choices"][0]["message"].get("content") or "").strip()
         if note:
-            text += "\n\n🧠 " + telegram.esc(note)
+            out += ["", "🧠 " + telegram.md(note)]
     except Exception as exc:  # noqa: BLE001
         log.warning("No comment: %s", exc)
-    print(text) if args.no_telegram else telegram.send(text)
+    telegram.send_report(out, "Dead_stock", dry=args.no_telegram)
     return 0
 
 

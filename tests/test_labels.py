@@ -1,5 +1,6 @@
 from datetime import date, datetime
 
+from bindal.core import telegram
 from bindal.labels import pipeline as p
 
 NAMES = {"37863": "BINDAL EXPORTS LIMITED - Flipkart", "45111": "BINDAL EXPORTS LIMITED - MYNTRA"}
@@ -39,7 +40,7 @@ def test_check_finds_the_three_mismatches():
     assert [l["awb"] for _, l in res["not_rts"]] == ["N1"]
     assert [l["awb"] for l in res["no_label"]] == ["R1"]
     assert res["packers"] == {"RAHUL": 2, "SHEKHAR": 1} and res["packer_cancel"] == {"RAHUL": 1}
-    text = p.message(res, NAMES, datetime(2026, 10, 20, 18), since, rts_from)
+    text = telegram.render(p.message(res, NAMES, datetime(2026, 10, 20, 18), since, rts_from))
     assert "Printed for cancelled orders: 1" in text and "• C1 · Flipkart · Cancel Init · RAHUL 20 Oct 10:00" in text
     assert "Printed, not ready to ship in OMSGuru: 1" in text and "Myntra MAIN" in text
     assert "Ready to ship in OMSGuru, no ERP label: 1" in text and "No mismatch" not in text
@@ -47,4 +48,5 @@ def test_check_finds_the_three_mismatches():
 
 def test_message_all_clear():
     res = p.check({}, [], datetime(2026, 10, 19), date(2026, 10, 17))
-    assert "No mismatch" in p.message(res, NAMES, datetime(2026, 10, 20, 18), datetime(2026, 10, 19), date(2026, 10, 17))
+    assert "No mismatch" in telegram.render(
+        p.message(res, NAMES, datetime(2026, 10, 20, 18), datetime(2026, 10, 19), date(2026, 10, 17)))

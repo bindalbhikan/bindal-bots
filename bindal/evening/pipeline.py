@@ -69,13 +69,13 @@ def sale_table(lines: list[dict], names: dict[str, str], today: date, before: da
         if l["day"] == today and CANCELLED.match(l["status"]):
             cancel += l["qty"]
     chans = sorted({c for c, _ in units}, key=lambda c: -units[(c, today)])
-    rows = [f"{'Channel':<11}{format(today, '%d%b'):>6}{format(before, '%d%b'):>6}{'±':>6}"]
+    rows = [f"{'Channel':<11}{format(today, '%d%b'):>6}{format(before, '%d%b'):>6}{'±':>5}"]   # 28 wide: a phone
     t_now = t_before = 0
     for c in chans:
         now, prev = units[(c, today)], units[(c, before)]
         t_now, t_before = t_now + now, t_before + prev
-        rows.append(f"{c[:11]:<11}{now:>6}{prev:>6}{change(now, prev):>6}")
-    rows.append(f"{'Total':<11}{t_now:>6}{t_before:>6}{change(t_now, t_before):>6}")
+        rows.append(f"{c[:11]:<11}{now:>6}{prev:>6}{change(now, prev):>5}")
+    rows.append(f"{'Total':<11}{t_now:>6}{t_before:>6}{change(t_now, t_before):>5}")
     return "\n".join(rows), t_now, cancel
 
 
@@ -112,7 +112,7 @@ def run(args) -> int:
         note = (llm.chat([{"role": "system", "content": COMMENT}, {"role": "user", "content": facts}],
                          max_tokens=1500)["choices"][0]["message"].get("content") or "").strip()
         if note:
-            out += ["", "🧠 " + telegram.esc(note)]
+            out += ["", "🧠 " + telegram.md(note)]
     except Exception as exc:  # noqa: BLE001 - the summary goes out without the lines
         log.warning("No comment: %s", exc)
     text = "\n".join(out)

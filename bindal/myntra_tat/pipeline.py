@@ -66,14 +66,14 @@ def score(rep: pd.DataFrame, sla: dict[str, datetime], first: date, last: date, 
 def message(df: pd.DataFrame, first: date, last: date, matched: int, total: int) -> str:
     lines = [f"🛍 <b>Myntra Courier Pickup · {first:%d %b} - {last:%d %b}</b>",
              "<i>pickup (fmpu) against the OMSGuru SLA, by account and courier</i>"]
-    table = [f"{'Acct':<5}{'Courier':<8}{'Ord':>5}{'Late':>5}{'OnT%':>6}"]
+    table = [f"{'Acct':<5}{'Courier':<8}{'Ord':>5}{'Late':>5}{'OnT%':>5}"]   # 28 wide: a phone
     for (acct, courier), g in sorted(df.groupby(["account", "courier"]), key=lambda kv: (kv[0][0], -len(kv[1]))):
         n = int(g["on_time"].sum() + g["late"].sum())
         pct = f"{round(100 * g['on_time'].sum() / n)}%" if n else "-"
-        table.append(f"{acct:<5}{courier[:7]:<8}{len(g):>5}{int(g['late'].sum()):>5}{pct:>6}")
+        table.append(f"{acct:<5}{courier[:7]:<8}{len(g):>5}{int(g['late'].sum()):>5}{pct:>5}")
     n = int(df["on_time"].sum() + df["late"].sum())
     table.append(f"{'Total':<13}{len(df):>5}{int(df['late'].sum()):>5}"
-                 + (f"{round(100 * df['on_time'].sum() / n)}%" if n else "-").rjust(6))
+                 + (f"{round(100 * df['on_time'].sum() / n)}%" if n else "-").rjust(5))
     late = df[df["late"]]
     lines += ["<pre>" + telegram.esc("\n".join(table)) + "</pre>",
               f"Late: <b>{len(late)}</b> · our side (packed after the SLA) {int(late['ours'].sum())} · "

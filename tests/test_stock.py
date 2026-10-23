@@ -1,6 +1,7 @@
 from collections import Counter
 from datetime import date
 
+from bindal.core import telegram
 from bindal.stock import pipeline as p
 
 
@@ -25,6 +26,6 @@ def test_at_risk_and_message():
     risk = p.at_risk(sold, stock, days=14, min_sold=7, cover_days=3)
     assert [r["sku"] for r in risk] == ["A-1-M", "A-1-L"]        # S has 30 days; B sold too little; combo unknown
     assert risk[0]["days_left"] == 1.5 and risk[1]["stock"] == 0
-    text = p.message(risk, 14, 3, date(2026, 10, 20))
+    text = telegram.render(p.message(risk, 14, 3, date(2026, 10, 20)))
     assert "Out of stock: <b>1</b> SKUs (about 1 units a day not sold) · running out: <b>1</b>" in text
     assert "• <b>A-1</b> · sells 3.0/day · M 3 (1.5d), L 0 (OUT)" in text      # sizes in size order

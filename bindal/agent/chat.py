@@ -168,15 +168,7 @@ def propose_action(action: str, summary: str, inputs: str = "{}") -> str:
 TOOLS = READ_ONLY + [find_order, sale_by_channel, due_today, propose_action]
 
 
-def to_telegram(text: str) -> str:
-    """The model's light markdown as Telegram HTML: **bold**, "- " / "* " bullets, # headings."""
-    import re
-    out = []
-    for line in telegram.esc(text).splitlines():
-        line = re.sub(r"^\s{0,3}#{1,6}\s*(.+)$", r"<b>\1</b>", line)
-        line = re.sub(r"^(\s*)[-*]\s+", r"\1• ", line)
-        out.append(re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", line).rstrip())
-    return "\n".join(out)
+to_telegram = telegram.md   # the model's light markdown as Telegram HTML
 
 
 def run(args) -> int:

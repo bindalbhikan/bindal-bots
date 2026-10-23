@@ -94,15 +94,22 @@ def rupees(v: float) -> str:
 
 
 def message(ch: list, top: list, fell: list, pk: list, this: list[date], last: list[date]) -> str:
-    t = [f"{'Channel':<11}{'Units':>6}{'±':>6}{'Value':>7}{'Cn%':>4}"]
+    # two narrow tables (28 characters at most) instead of one wide one: no wrapping on a phone
+    t = [f"{'Channel':<11}{'Units':>6}{'±':>6}{'Cn%':>5}"]
+    tv = [f"{'Channel':<11}{'Value':>8}{'±':>6}"]
     for c, n, b, v, vb, cp in ch:
-        t.append(f"{c[:11]:<11}{n:>6}{change(n, b):>6}{rupees(v):>7}{cp:>4}")
+        t.append(f"{c[:11]:<11}{n:>6}{change(n, b):>6}{cp:>5}")
+        tv.append(f"{c[:11]:<11}{rupees(v):>8}{change(round(v), round(vb)):>6}")
     n, b = sum(r[1] for r in ch), sum(r[2] for r in ch)
     v, vb = sum(r[3] for r in ch), sum(r[4] for r in ch)
-    t.append(f"{'Total':<11}{n:>6}{change(n, b):>6}{rupees(v):>7}")
+    t.append(f"{'Total':<11}{n:>6}{change(n, b):>6}")
+    tv.append(f"{'Total':<11}{rupees(v):>8}{change(round(v), round(vb)):>6}")
     out = [f"📊 <b>Weekly review · {this[-1]:%d %b} - {this[0]:%d %b}</b>",
            f"<i>against {last[-1]:%d %b} - {last[0]:%d %b}; units and order value by order date</i>",
+           "", "<b>Units</b> (Cn% = cancelled)",
            "<pre>" + telegram.esc("\n".join(t)) + "</pre>",
+           "<b>Order value</b>",
+           "<pre>" + telegram.esc("\n".join(tv)) + "</pre>",
            f"Order value {rupees(v)} ({change(round(v), round(vb))} on {rupees(vb)})", "",
            "<b>Top styles</b> (units, ± last week)",
            *[f"• {telegram.esc(s)} {n} ({change(n, b)})" for s, n, b in top]]
@@ -139,7 +146,7 @@ def run(args) -> int:
         note = (llm.chat([{"role": "system", "content": COMMENT}, {"role": "user", "content": plain}],
                          max_tokens=2000)["choices"][0]["message"].get("content") or "").strip()
         if note:
-            text += "\n\n🧠 " + telegram.esc(note)
+            text += "\n\n🧠 " + telegram.md(note)
     except Exception as exc:  # noqa: BLE001
         log.warning("No comment: %s", exc)
     log.info("Weekly: %d channels, %d order lines", len(ch), len(lines))
