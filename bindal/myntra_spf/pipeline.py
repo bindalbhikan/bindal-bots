@@ -237,8 +237,11 @@ def _num(v):
 
 def final_status(r: dict) -> str:
     """FINAL RETURN STATUS as the master's formula computes it (engine.build_formulas)."""
+    from .engine import SPF_ACCEPTED_STATUSES
     if str(r.get("SPF PAID") or "").strip():
         return "SPF Paid"
+    if str(r.get("STATUS") or "").strip().upper() in SPF_ACCEPTED_STATUSES:
+        return "SPF Accepted"
     oms, man = str(r.get("OMSGURU STATUS") or "").upper(), str(r.get("MANUAL RETURN STATUS") or "").upper()
     if "RECEIVED" in oms or "RECEIVED" in man or "PICKUP NOT DONE" in man:
         return "Return Received"

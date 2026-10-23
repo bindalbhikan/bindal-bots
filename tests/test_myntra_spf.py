@@ -96,3 +96,18 @@ def test_spf_tickets_pages_of_500_and_a_failed_page_is_asked_again(monkeypatch):
     portal._call = call
     rows = portal.spf_tickets()
     assert len(rows) == 700 and calls == [0, 1, 1]                 # page 1 failed once, asked again
+
+
+def test_accepted_spf_ticket_is_a_final_status():
+    from bindal.myntra_spf import engine
+    from bindal.myntra_spf.pipeline import final_status
+    for st in ("ACCEPT", "INVOICE_INITIATED", "PAYMENT_COMPLETED"):
+        assert final_status({"STATUS": st}) == "SPF Accepted"
+        assert engine.is_settled({"STATUS": st})
+    assert final_status({"STATUS": "PAYMENT_COMPLETED", "SPF PAID": 500}) == "SPF Paid"
+    assert final_status({"STATUS": "REJECT"}) == "" and not engine.is_settled({"STATUS": "REJECT"})
+    f = engine.build_formulas(5)["FINAL RETURN STATUS"]
+    st = engine.C["STATUS"] + "5"
+    assert f'IF(OR({st}="ACCEPT",{st}="INVOICE_INITIATED",{st}="PAYMENT_COMPLETED"),"SPF Accepted",' in f
+    assert f.count("(") == f.count(")")
+    assert ("SPF ACCEPTED", "count", None, [("FINAL RETURN STATUS", "SPF Accepted")]) in engine.SUMMARY_COLS

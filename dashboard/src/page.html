@@ -663,7 +663,7 @@ function renderMspf() {
   if (mspfAccount !== "All" && !names.includes(mspfAccount)) mspfAccount = "All";
   const a = mspfAccount === "All" ? mspfTotal(m.accounts) : { ...m.accounts[mspfAccount] };
   const finals = [["Return Received", "Received", css("--good")], ["Open", "Open (no final status)", css("--warning")],
-                  ["Payment Received", "Payment received", css("--s1")], ["SPF Paid", "SPF paid", css("--s3")]];
+                  ["Payment Received", "Payment received", css("--s1")], ["SPF Accepted", "SPF accepted", css("--s2")], ["SPF Paid", "SPF paid", css("--s3")]];
   const maxF = Math.max(1, ...finals.map(([k]) => a.final[k] || 0));
   const claims = [["ELIGIBLE", "🟢 Eligible now"], ["UPCOMING CLAIM", "🟡 Upcoming"], ["CLAIM DONE", "✅ Claim done"], ["EXPIRED", "🔴 Expired"], ["NON ELIGIBLE", "Not eligible"]];
   const steps = [css("--seq-1"), css("--seq-2"), css("--seq-3"), css("--seq-4")];

@@ -1533,6 +1533,8 @@ def build_formulas(n):
 
     # First match wins:
     #   SPF Paid          - Myntra paid the claim (SPF PAID filled)
+    #   SPF Accepted      - the SPF ticket passed (STATUS ACCEPT / INVOICE_INITIATED /
+    #                       PAYMENT_COMPLETED), the payout not on the payment report yet
     #   Return Received   - OMSGURU / MANUAL say the parcel is back, or MANUAL says
     #                       "Pickup Not Done": the parcel never left the customer, so
     #                       nothing is lost and it must not count as pending
@@ -1542,12 +1544,14 @@ def build_formulas(n):
     settle = C['ORDER SETTLEMENT'] + str(n)
     debit = C['RETURN DEBIT'] + str(n)
     fee = C['RETURN CHARGE'] + str(n)
+    tks = C['STATUS'] + str(n)
     f_final = ('=IF({s}<>"","SPF Paid",'
+               'IF(OR({tk}="ACCEPT",{tk}="INVOICE_INITIATED",{tk}="PAYMENT_COMPLETED"),"SPF Accepted",'
                'IF(OR(ISNUMBER(SEARCH("RECEIVED",{o})),ISNUMBER(SEARCH("RECEIVED",{m})),'
                'ISNUMBER(SEARCH("PICKUP NOT DONE",{m}))),'
                '"Return Received",'
-               'IF(AND(ISNUMBER({st}),{d}="",{fe}=""),"Payment Received","")))'
-               .format(s=spf, o=oms, m=man, st=settle, d=debit, fe=fee))
+               'IF(AND(ISNUMBER({st}),{d}="",{fe}=""),"Payment Received",""))))'
+               .format(s=spf, tk=tks, o=oms, m=man, st=settle, d=debit, fe=fee))
 
     # A delivery date means the portal handed it back, so it is a "return not received"
     # case unless you confirm you actually have it.
@@ -1936,7 +1940,7 @@ def write_subtotals(ws, f, last):
 
 # ------------------------------------------------------------------------- summary
 # FINAL RETURN STATUS is the column everything turns on: a value there (Return
-# Received / SPF Paid / Payment Received) means the return is settled one way or
+# Received / SPF Paid / SPF Accepted / Payment Received) means the return is settled one way or
 # another, and BLANK means it is still unresolved. The summaries are built around it.
 #
 # Every cell is a COUNTIFS / SUMIFS over the full account sheet, so a status edited by
@@ -1947,6 +1951,7 @@ SUMMARY_COLS = [
     ('TOTAL RETURNS', 'count', None, []),
     ('RETURN RECEIVED', 'count', None, [('FINAL RETURN STATUS', 'Return Received')]),
     ('SPF PAID', 'count', None, [('FINAL RETURN STATUS', 'SPF Paid')]),
+    ('SPF ACCEPTED', 'count', None, [('FINAL RETURN STATUS', 'SPF Accepted')]),
     ('PAYMENT RECEIVED', 'count', None, [('FINAL RETURN STATUS', 'Payment Received')]),
     ('PENDING', 'count', None, [_PENDING]),
     ('PENDING AMT', 'sum', 'ORDER AMOUNT', [_PENDING]),
@@ -1963,7 +1968,7 @@ SUMMARY_COLS = [
 # The day-wise sheet has ~750 rows, so it carries only the columns that answer "what is
 # still open from that day" - enough to act on without making Excel crawl.
 DATE_SUMMARY_COLS = [c for c in SUMMARY_COLS if c[0] in (
-    'TOTAL RETURNS', 'RETURN RECEIVED', 'SPF PAID', 'PAYMENT RECEIVED', 'PENDING',
+    'TOTAL RETURNS', 'RETURN RECEIVED', 'SPF PAID', 'SPF ACCEPTED', 'PAYMENT RECEIVED', 'PENDING',
     'PENDING AMT', 'ELIGIBLE CLAIMS', 'PENDING CLAIM AMT', 'SPF PAID AMT')]
 SUMMARY_SHEET = 'SUMMARY'
 DATE_SUMMARY_SHEET = 'DATE SUMMARY'
@@ -2327,10 +2332,12 @@ def cleanup_inputs(data, log, dry_run=False):
 # ------------------------------------------------------------- young in-transit rows
 def is_settled(rec):
     """Python twin of the FINAL RETURN STATUS formula: True when that cell would hold a
-    value (SPF Paid / Return Received / Payment Received), i.e. the return is resolved."""
+    value (SPF Paid / SPF Accepted / Return Received / Payment Received), i.e. the return is resolved."""
     if rec.get('FINAL RETURN STATUS') not in (None, ''):     # typed over the formula
         return True
     if rec.get('SPF PAID') is not None:
+        return True
+    if norm(rec.get('STATUS')) in SPF_ACCEPTED_STATUSES:
         return True
     oms = str(rec.get('OMSGURU STATUS') or '').upper()
     man = str(rec.get('MANUAL RETURN STATUS') or '').upper()
@@ -2340,6 +2347,8 @@ def is_settled(rec):
             and rec.get('RETURN DEBIT') is None and rec.get('RETURN CHARGE') is None)
 
 
+# SPF ticket statuses that mean the claim passed (FINAL RETURN STATUS = SPF Accepted)
+SPF_ACCEPTED_STATUSES = {'ACCEPT', 'INVOICE_INITIATED', 'PAYMENT_COMPLETED'}
 IN_TRANSIT_STATUSES = {'RET CREATED', 'RET DISPATCHED', 'RTO CREATED', 'DISPATCHED'}
 
 
