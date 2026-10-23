@@ -399,14 +399,10 @@ def pickup_ticket_candidates(df, now) -> pd.DataFrame:
 
 
 def pickup_ticket_text(r) -> tuple[str, str]:
-    def at(v):
-        return "-" if pd.isna(v) else pd.Timestamp(v).strftime("%d-%b-%Y %I:%M %p")
     subject = f"PICKUP NOT DONE | Order {r['Order ID']} | AWB {r['AWB']}"
-    description = (f"Hi Team,\n\nOrder ID {r['Order ID']} (AWB {r['AWB']}, {r['Courier']}) was packed and ready "
-                   f"to ship on {at(r['RTS Time'])}. The Promise Ship Date was {at(r['Dispatch Deadline'])}, but "
-                   f"the courier has not picked up the shipment yet.\n\nKindly arrange the pickup today on "
-                   f"priority, and make sure no SLA penalty is applied to this order, as the delay is on the "
-                   f"courier's side.\n\nThanks & regards,\nBindal Exports")
+    description = (f"Hi Team,\n\nOrder ID {r['Order ID']} (AWB {r['AWB']}) was ready to ship on time, but the "
+                   f"pickup is still pending. Kindly arrange the pickup, and no penalty should be applied to "
+                   f"this order.\n\nThanks & regards,\nBindal Exports")
     return subject, description
 
 
