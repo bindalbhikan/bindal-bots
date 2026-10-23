@@ -107,3 +107,47 @@ def test_ajio_pickup_timestamp_replaces_the_courier_time(monkeypatch):
     assert list(out["Pickup Time"]) == [pd.Timestamp("2026-10-22 11:57"), pd.Timestamp("2026-10-22 12:03"),
                                         pd.Timestamp("2026-10-22 15:00")]   # AJIO first, courier where AJIO has none
     assert list(out["Cust Order No"]) == ["FN1", "FN2", "FN3"]
+
+
+def test_dispatch_deadline_is_the_courier_pickup_time_from_29_jul():
+    from bindal.ajio_tat.tat_engine import dispatch_deadline
+    ts = pd.Timestamp
+    assert dispatch_deadline(ts("2026-07-28 09:00"), "XPRESSBEES") == ts("2026-07-28 23:59:59")
+    assert dispatch_deadline(ts("2026-10-10 09:59"), "XPRESSBEES") == ts("2026-10-10 12:00")
+    assert dispatch_deadline(ts("2026-10-10 10:00"), "SHADOWFAX") == ts("2026-10-11 12:30")
+    assert dispatch_deadline(ts("2026-10-10 15:00"), "BLUEDART") == ts("2026-10-11 12:00")
+    assert dispatch_deadline(ts("2026-10-10 15:00"), "EKART") == ts("2026-10-11 23:59:59")
+    assert pd.isna(dispatch_deadline(pd.NaT, "BLUEDART"))
+
+
+def test_pickup_tickets_one_per_overdue_order_never_twice(monkeypatch):
+    from bindal.ajio_tat import pipeline as p
+    from bindal.portals import ajio
+    now = pd.Timestamp("2026-10-23 16:00")
+    base = {"Process Status": "On Time", "Pickup Status": "Pending Pickup", "Courier": "BLUEDART",
+            "Order Time": pd.Timestamp("2026-10-22 11:00"), "RTS Time": pd.Timestamp("2026-10-22 15:00")}
+    df = pd.DataFrame([
+        {**base, "Order ID": "1", "AWB": "A1", "Dispatch Deadline": pd.Timestamp("2026-10-22 12:00")},  # overdue
+        {**base, "Order ID": "2", "AWB": "A2", "Dispatch Deadline": pd.Timestamp("2026-10-22 12:00")},  # has ticket
+        {**base, "Order ID": "3", "AWB": "A3", "Dispatch Deadline": pd.Timestamp("2026-10-23 12:00")},  # in grace
+        {**base, "Order ID": "4", "AWB": "A4", "Dispatch Deadline": pd.Timestamp("2026-10-23 12:00"),
+         "Pickup Status": "Late"}])                                                                 # picked
+    sent = []
+
+    class Client:
+        def __init__(self, *a): pass
+        def login(self): pass
+        def ticket_list(self, a, b):
+            return [{"orderId": "2", "ticketId": "T2", "subCategory": ajio.PICKUP_NOT_DONE}]
+        def create_ticket(self, payload):
+            sent.append(payload)
+            return "T1"
+
+    monkeypatch.setenv("AJIO_USERNAME", "x@y.com")
+    monkeypatch.setattr(ajio, "AjioClient", Client)
+    monkeypatch.setattr(p.time, "sleep", lambda s: None)
+    done = p.raise_pickup_tickets(df, now, dry=False)
+    assert [(d["Order ID"], d["Result"]) for d in done] == [("1", "created"), ("2", "already has ticket")]
+    assert sent[0]["orderId"] == "1" and sent[0]["issueType"] == "ORDERS" and sent[0]["ticketType"] == "GENERAL"
+    assert sent[0]["subIssueType"] == ajio.PICKUP_NOT_DONE and "A1" in sent[0]["issueTitle"]
+    assert "🎫" in p.pickup_ticket_report(done)[0]

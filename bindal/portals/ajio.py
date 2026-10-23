@@ -201,6 +201,36 @@ class AjioClient:
             raise AjioError(f"SPF ticket create failed: HTTP {r.status_code} {r.text[:300]}")
         return str(((r.json() or {}).get("result") or {}).get("ticketId") or "?")
 
+    def create_ticket(self, payload: dict) -> str:
+        """A GENERAL ticket (Help Center > Raise New Ticket)."""
+        r = self._req("POST", "/malekith/castellan/api/v1/tickets", json=payload, headers=self.castellan)
+        if r.status_code not in (200, 201):
+            raise AjioError(f"Ticket create failed: HTTP {r.status_code} {r.text[:300]}")
+        return str(((r.json() or {}).get("result") or {}).get("ticketId") or "?")
+
+
+PICKUP_NOT_DONE = "PICKUP NOT DONE / SHIPMENT NOT SCANNING"
+
+
+def pickup_payload(order_id: str, subject: str, description: str, pob_id: str, email: str) -> dict:
+    """Same body the Help Center form sends for ORDERS > PICKUP NOT DONE / SHIPMENT NOT SCANNING."""
+    return {
+        "assignmentGroup": ASSIGNMENT_GROUP,
+        "description": description,
+        "issueTitle": subject,
+        "subIssueType": PICKUP_NOT_DONE,
+        "orderId": order_id,
+        "priority": "CRITICAL",
+        "sellerContactNo": CONTACT_NO,
+        "sellerEmail": email,
+        "storeName": STORE_NAMES.get(pob_id, ""),
+        "issueType": "ORDERS",
+        "pobId": pob_id,
+        "fulfilmentType": "DROPSHIP",
+        "tenant": "AJIO",
+        "ticketType": "GENERAL",
+    }
+
 
 def spf_payload(ro: dict, item: dict, sub_issue: str, description: str, pob_id: str, email: str) -> dict:
     """Same body the portal (and ajio-ticket-raise.js) sends for one return item."""

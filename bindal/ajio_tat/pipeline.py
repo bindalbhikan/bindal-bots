@@ -8,6 +8,8 @@ import logging
 import os
 import re
 import shutil
+import tempfile
+import time
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -19,7 +21,7 @@ from ..core import dashboard, telegram
 from ..core.app import run_bot
 from ..core.config import ROOT, csv_list, env, num, output_dir
 from ..portals.omsguru import OmsGuruClient
-from .tat_engine import (OPEN_PICKUP, apply_status, apply_tracking,
+from .tat_engine import (OPEN_PICKUP, apply_status, apply_tracking, dispatch_deadlines,
                          needs_oms_refresh, build_report, merge_master, normalize_master,
                          prepare_tracking, summarize, write_excel)
 
@@ -379,6 +381,86 @@ def pickup_pending_report(df, now=None) -> list:
             "Regards,", "Bindal Exports"]
 
 
+def pickup_ticket_candidates(df, now) -> pd.DataFrame:
+    """Packed, not picked up, the pickup deadline passed TICKET_GRACE_HOURS (24) ago (a whole pickup
+    day missed), ordered in the last TRACK_DAYS (15) days: one AJIO ticket per order."""
+    since = now.normalize() - pd.Timedelta(days=num("TRACK_DAYS", 15))
+    grace = pd.Timedelta(hours=num("TICKET_GRACE_HOURS", 24))
+    due = (awaiting_pickup_mask(df) & (df["Dispatch Deadline"] + grace < now) & (df["Order Time"] >= since)
+           & df["Order ID"].notna() & df["AWB"].notna())
+    return df[due].sort_values("Dispatch Deadline")
+
+
+def pickup_ticket_text(r) -> tuple[str, str]:
+    def at(v):
+        return "-" if pd.isna(v) else pd.Timestamp(v).strftime("%d-%b-%Y %I:%M %p")
+    subject = f"PICKUP NOT DONE | Order {r['Order ID']} | AWB {r['AWB']}"
+    description = (f"Hi Team,\n\nOrder ID {r['Order ID']} (AWB {r['AWB']}, {r['Courier']}) was packed and ready "
+                   f"to ship on {at(r['RTS Time'])}. The Promise Ship Date was {at(r['Dispatch Deadline'])}, but "
+                   f"the courier has not picked up the shipment yet.\n\nKindly arrange the pickup today on "
+                   f"priority, and make sure no SLA penalty is applied to this order, as the delay is on the "
+                   f"courier's side.\n\nThanks & regards,\nBindal Exports")
+    return subject, description
+
+
+def raise_pickup_tickets(df, now, dry: bool) -> list[dict]:
+    """One AJIO ticket (ORDERS > PICKUP NOT DONE / SHIPMENT NOT SCANNING) per overdue order. An order
+    that already has a pickup ticket from the last 30 days is skipped, so a ticket is never raised twice;
+    at most TICKET_CAP (40) per run. If the ticket check fails nothing is raised."""
+    from ..portals.ajio import PICKUP_NOT_DONE, AjioClient, pickup_payload
+    cands = pickup_ticket_candidates(df, now)
+    if cands.empty or not env("AJIO_USERNAME"):
+        return []
+    client = AjioClient(env("AJIO_USERNAME"), env("AJIO_PASSWORD"))
+    client.login()
+    old = client.ticket_list((now - pd.Timedelta(days=30)).date(), now.date())
+    have = {str(t.get("orderId") or "").strip(): str(t.get("ticketId")) for t in old
+            if str(t.get("subCategory") or "").upper() == PICKUP_NOT_DONE}
+    pob, cap, done = env("POB_ID", "DV00348890"), num("TICKET_CAP", 40), []
+    for _, r in cands.iterrows():
+        oid = str(r["Order ID"]).strip()
+        rec = {"Order ID": oid, "AWB": str(r["AWB"]), "Courier": str(r["Courier"]),
+               "Pickup Deadline": r["Dispatch Deadline"], "Ticket": have.get(oid, ""), "Result": ""}
+        if oid in have:
+            rec["Result"] = "already has ticket"
+        elif sum(d["Result"] in ("created", "dry-run") for d in done) >= cap:
+            rec["Result"] = "over cap"
+        elif dry:
+            rec["Result"] = "dry-run"
+        else:
+            subject, description = pickup_ticket_text(r)
+            try:
+                rec.update(Ticket=client.create_ticket(pickup_payload(oid, subject, description, pob,
+                                                                      env("AJIO_USERNAME"))), Result="created")
+                time.sleep(1.2)
+            except Exception as exc:  # noqa: BLE001 - the next order still gets its ticket
+                rec["Result"] = f"error: {exc}"[:200]
+        done.append(rec)
+    log.info("Pickup tickets: %s", pd.Series([d["Result"] for d in done]).value_counts().to_dict())
+    return done
+
+
+def pickup_ticket_report(done: list[dict]) -> list:
+    """Telegram: the pickup tickets this run raised (or would raise, dry run); [] when none."""
+    new = [d for d in done if d["Result"] in ("created", "dry-run")]
+    failed = [d for d in done if d["Result"].startswith("error")]
+    if not new and not failed:
+        return []
+    dry = any(d["Result"] == "dry-run" for d in new)
+    table = [f"{d['AWB'][:15]:<15} {short_courier(d['Courier'])[:7]:<7} {d['Ticket'][-4:] or '-'}" for d in new]
+    lines = [f"🎫 <b>AJIO Pickup Tickets · {len(new)} {'to raise (dry run)' if dry else 'raised'}</b>",
+             "<i>ORDERS › Pickup not done, one per order whose pickup deadline has passed</i>"]
+    if failed:
+        lines.append(f"⚠️ {len(failed)} failed: " + ", ".join(d["Order ID"] for d in failed[:10]))
+    if table:
+        rows = [{**d, "Pickup Deadline": None if pd.isna(d["Pickup Deadline"])
+                 else pd.Timestamp(d["Pickup Deadline"]).to_pydatetime()} for d in done]
+        lines.append(telegram.Listing("", ["<pre>" + telegram.esc(f"{'AWB':<15} {'Courier':<7} Tkt\n"
+                                                                 + "\n".join(table)) + "</pre>"],
+                                      rows, "Pickup tickets"))
+    return lines
+
+
 SCORE_COMMENT = """You are the e-commerce manager of Bindal Exports, an AJIO seller. Below is the courier
 pickup scorecard of the last 7 order days. Write 2 short lines for the owner in plain English: which
 courier is the problem and how bad, and whether the delay is on our side (processing late) or the
@@ -507,7 +589,10 @@ def run(args) -> int:
     elif not args.no_drive and env("TAT_DRIVE_FILE_ID"):
         from ..core.drive import DriveFile
         drive = DriveFile(env("TAT_DRIVE_FILE_ID"))
-    drive_copy = out / "drive" / MASTER_NAME
+    # the working copy of the Drive master stays off Google Drive for desktop: saved under G:\My Drive
+    # the file came out damaged (bad CRC) after the save check passed, and that copy got uploaded
+    drive_copy = (out if "my drive" not in str(out).lower() else
+                  Path(tempfile.gettempdir()) / "bindal" / "ajio_tat") / "drive" / MASTER_NAME
 
     # 1) master state
     if args.seed_xlsx:
@@ -549,6 +634,7 @@ def run(args) -> int:
 
     # 4) merge + rules
     merged, stats = merge_master(old, new)
+    merged["Dispatch Deadline"] = dispatch_deadlines(merged)
     merged = apply_tracking(merged, summ, ev)
     if len(ev):
         as_of = max(as_of, ev["ts"].max())
@@ -586,6 +672,15 @@ def run(args) -> int:
                    f"\u2022 {len(errors)} order page / tracking lookups failed; those orders keep their "
                    "last known status (list in the run's errors.log)")
     score = courier_scorecard(df)
+    tickets = []
+    if args.tickets or args.tickets_dry or env("AJIO_PICKUP_TICKETS", "").lower() in ("1", "true", "yes"):
+        try:
+            tickets = pickup_ticket_report(raise_pickup_tickets(df, pd.Timestamp.now(), dry=args.tickets_dry))
+        except Exception as exc:  # noqa: BLE001 - the TAT report still goes out
+            log.exception("Pickup tickets not raised")
+            tickets = [f"⚠️ AJIO pickup tickets not raised: {telegram.esc(str(exc)[:150])}"]
+    if tickets:
+        telegram.send_report(tickets, "AJIO_pickup_tickets", dry=args.no_telegram)
     if args.no_telegram:
         print(report)
         print(score)
@@ -637,5 +732,9 @@ def main(argv=None) -> int:
     p.add_argument("--seed-xlsx", help="one-time: load an existing AJIO_TAT_MASTER.xlsx into the master")
     p.add_argument("--orders", help="also add these AJIO orders, whatever their date: comma / space separated "
                                      "FN... / EX... customer order numbers, seller order numbers, invoices or AWBs")
+    p.add_argument("--tickets", action="store_true",
+                   help="raise an AJIO 'pickup not done' ticket per order whose pickup deadline has passed "
+                        "(also on with AJIO_PICKUP_TICKETS=1)")
+    p.add_argument("--tickets-dry", action="store_true", help="list the pickup tickets that would be raised, raise none")
     p.add_argument("--probe", action="store_true", help="test OMSGuru login + listing only")
     return run_bot("AJIO Dispatch TAT report", p, lambda a: probe(a) if a.probe else run(a), argv, key="ajio_tat")

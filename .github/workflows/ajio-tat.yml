@@ -52,6 +52,10 @@ jobs:
       SHADOWFAX_TOKEN: ${{ secrets.SHADOWFAX_TOKEN }}
       AJIO_CHANNEL_IDS: ${{ vars.AJIO_CHANNEL_IDS }}
       TAT_LOOKBACK_DAYS: ${{ inputs.days || vars.TAT_LOOKBACK_DAYS }}
+      # 1 = raise an AJIO "pickup not done" ticket per order whose pickup deadline passed a day ago
+      AJIO_PICKUP_TICKETS: ${{ vars.AJIO_PICKUP_TICKETS }}
+      TICKET_GRACE_HOURS: ${{ vars.TICKET_GRACE_HOURS }}
+      TICKET_CAP: ${{ vars.TICKET_CAP }}
       IN_ORDERS: ${{ inputs.orders }}
     steps:
       - uses: actions/checkout@v4

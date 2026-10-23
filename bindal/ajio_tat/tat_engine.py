@@ -25,6 +25,13 @@ from openpyxl.utils import get_column_letter
 
 CUTOFF = time(10, 0)          # 10:10 rule cut-off
 SKIP_SUNDAY = False           # True => if due date falls on Sunday, push to Monday
+# AJIO Promise Ship Date (mail of 3 Aug 2026; in OMSGuru from 29 Jul 2026): the order must be
+# picked up by the courier's pickup time on the due date, not by 23:59. Orders before
+# PSD_FROM keep 23:59:59; a courier not listed here also keeps 23:59:59.
+PSD_FROM = pd.Timestamp("2026-07-29")
+PICKUP_TIME = {"XPRESSBEES": time(12, 0), "BLUEDART": time(12, 0),
+               "SHADOWFAX": time(12, 30), "DELHIVERY": time(12, 30)}
+END_OF_DAY = time(23, 59, 59)
 
 OMS_DATE_FMT = "%B %d, %Y %I:%M:%S %p"
 PENDING_PREFIX = "PENDING-"   # key used for orders that have no invoice number yet
@@ -82,6 +89,23 @@ def due_date_for(order_dt):
     if SKIP_SUNDAY and d.weekday() == 6:
         d += timedelta(days=1)
     return pd.Timestamp(d)
+
+
+def dispatch_deadline(order_dt, courier):
+    """Due date (10:10 rule) at the courier's pickup time, or 23:59:59 before PSD_FROM."""
+    due = due_date_for(order_dt)
+    if pd.isna(due):
+        return pd.NaT
+    t = END_OF_DAY
+    if order_dt >= PSD_FROM:
+        t = PICKUP_TIME.get(str(courier).strip().upper(), END_OF_DAY)
+    return pd.Timestamp.combine(due.date(), t)
+
+
+def dispatch_deadlines(df):
+    """Dispatch Deadline for every row, so old master rows follow the current rule too."""
+    return pd.to_datetime(pd.Series([dispatch_deadline(o, c) for o, c in zip(df["Order Time"], df["Courier"])],
+                                    index=df.index, dtype=object), errors="coerce")
 
 
 def awb_of(s):
@@ -181,7 +205,7 @@ def build_report(o, hist, summ, ev):
     agg = agg.merge(summ.rename(columns={"STATUS": "Courier Status"})[["AWB", "Courier Status"]]
                     .drop_duplicates("AWB"), on="AWB", how="left")
 
-    agg["Dispatch Deadline"] = agg["Order Time"].map(due_date_for) + pd.Timedelta(hours=23, minutes=59, seconds=59)
+    agg["Dispatch Deadline"] = dispatch_deadlines(agg.rename(columns={"courier": "Courier"}))
     agg["RTS Exact"] = (agg["RTS Source"] != "Dispatch Log (date only)").astype(object)
     agg.loc[agg["RTS Time"].isna(), "RTS Exact"] = None
     agg["Last Updated"] = pd.Timestamp.now().normalize()
@@ -449,7 +473,8 @@ def summary_rows(s, as_of, source_note):
     """The Summary tab as a plain grid (shared by the Sheet and the xlsx)."""
     rows = [
         ["AJIO Dispatch TAT Summary"],
-        ["Rule (10:10): order before 10 AM -> dispatch same day; 10 AM or later -> next day (by 11:59 PM)."],
+        ["Rule (10:10): order before 10 AM -> dispatch same day; 10 AM or later -> next day. By the courier "
+         "pickup time (XB / BlueDart 12:00 PM, Shadowfax / Delhivery 12:30 PM) from 29 Jul 2026, 11:59 PM before."],
         [f"Tracking as of {as_of:%d-%b-%Y %I:%M %p}  |  {source_note}" if pd.notna(as_of)
          else f"Tracking time not known  |  {source_note}"],
         [],
