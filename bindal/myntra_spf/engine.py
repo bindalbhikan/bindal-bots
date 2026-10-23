@@ -155,7 +155,11 @@ EARLIEST_RETURN = dt.datetime(2026, 1, 1)
 # A return still in transit, not yet received, and created fewer than this many days ago
 # is too young to act on. Each run asks in the terminal whether such rows go into the
 # sheet (y) or are left out (n); anything already received is always kept.
-YOUNG_TRANSIT_DAYS = 58
+YOUNG_TRANSIT_DAYS = 60
+# Rows left out (n) wait on this hidden sheet of the master and come back on their own.
+PARKED_SHEET = 'YOUNG IN TRANSIT'
+PARKED_ACCOUNT = 'ACCOUNT'
+PARKED = {}
 
 # Raw columns, in the requested order. Both report types carry `type` / `status`, so
 # that pair appears once.
@@ -181,8 +185,14 @@ _SID_AFTER = 'seller_order_id'
 # Dispatch data comes from the ERP's dispatch sheet. Like STORE ORDER ID it is recorded
 # data rather than a working column, so it follows the tracking numbers, unfilled.
 DISPATCH_COLS = ['DISPATCH STATUS', 'DISPATCH DATE', 'DISPATCH VOUCHER']
+# The POD checks come from the courier POD sheet (input/MYNTRA RETURN PICKUP POD.xlsx),
+# one column per POD type plus the return POD's date, and are the last columns of the
+# sheet. Each type name is also the TYPE value the POD sheet uses.
+POD_TYPES = ['PICKUP POD', 'RETURN POD']
+RETURN_POD_DATE = 'RETURN POD DATE'
+POD_COLS = POD_TYPES + [RETURN_POD_DATE]
 HEADERS = (RAW[:RAW.index(_SID_AFTER) + 1] + ['STORE ORDER ID']
-           + RAW[RAW.index(_SID_AFTER) + 1:] + DISPATCH_COLS + WORK)
+           + RAW[RAW.index(_SID_AFTER) + 1:] + DISPATCH_COLS + WORK + POD_COLS)
 C = {h: L(i + 1) for i, h in enumerate(HEADERS)}
 
 # Rewritten on every run
@@ -199,7 +209,7 @@ PAYMENT_COLS = ['SPF PAID', 'UTR NO', 'RETURN CHARGE', 'ORDER SETTLEMENT',
 ORDER_COLS = ['ORDER AMOUNT', 'STORE ORDER ID', 'DISPATCH STATUS', 'DISPATCH DATE',
               'DISPATCH VOUCHER']
 
-DATE_COLS = {'return_created_date', 'DISPATCH DATE'}
+DATE_COLS = {'return_created_date', 'DISPATCH DATE', RETURN_POD_DATE}
 DTIME_COLS = {'deliver_to_seller_date'}
 NUM_COLS = {'seller_id', 'warehouse_id', 'order_group_id', 'order_line_id',
             'return_id', 'forward_tracking_number', 'forward_tracking_number_2',
@@ -237,6 +247,8 @@ ORDER_MARKERS = {'order line id', 'final amount', 'total mrp'}
 GRN_MARKERS = {'Voucher No.', 'Order Tracking Id', 'Stock Type'}
 # The ERP's dispatch export: one row per parcel that left the warehouse
 DISPATCH_MARKERS = {'Voucher No.', 'Order ID', 'Created By', 'Order Portal Name'}
+# The courier POD sheet: RETURN and PICKUP sheets of Tracking ID / DATE / TYPE
+POD_MARKERS = {'Tracking ID', 'TYPE', 'Source File'}
 
 
 def detect_kind(headers):
@@ -245,6 +257,8 @@ def detect_kind(headers):
         return 'GRN'
     if DISPATCH_MARKERS <= h:
         return 'DISPATCH'
+    if POD_MARKERS <= h:
+        return 'POD'
     if ORDER_MARKERS <= h:
         return 'ORDER'
     if PAYMENT_MARKERS <= h:
@@ -301,15 +315,24 @@ TICKET_SRC = {
 
 
 # ----------------------------------------------------------------------- value cleanup
+# A formula linking another workbook, e.g. =VLOOKUP(G5,[1]Orders!$E:$F,2,) pasted into a
+# yellow column. The master is read for its formula text, so such a cell comes back as
+# that text, and written back it is a formula pointing at a workbook the file does not
+# link to - Excel then "repairs" the file on every open. Its value cannot be worked out
+# without that workbook, so it counts as empty.
+EXTERNAL_FORMULA = re.compile(r"^=.*\[\d+\]")
+
+
 def clean(v):
-    """Excel error litter, empty strings and the 1970 placeholder date -> None."""
+    """Excel error litter, empty strings, the 1970 placeholder date and formulas linking
+    another workbook -> None."""
     if v is None:
         return None
     if isinstance(v, float) and v != v:          # NaN
         return None
     if isinstance(v, str):
         s = v.strip()
-        if s.upper() in JUNK or s in DUMMY_DATES:
+        if s.upper() in JUNK or s in DUMMY_DATES or EXTERNAL_FORMULA.match(s):
             return None
         return s
     return v
@@ -383,7 +406,7 @@ def typed(col, v):
 # keyed on the file's size and mtime. Before this, six separate passes over input/
 # each re-opened all 104 files only to ask "what kind of report is this?" - 10 seconds
 # a pass, ~70 seconds a run, for an answer that cannot change while the file does not.
-CACHE_VERSION = 1              # bump to throw every cached parse away
+CACHE_VERSION = 2              # bump to throw every cached parse away
 # The cache lives outside the project folder on purpose: the project sits in Google
 # Drive, and tens of MB of pickles rewritten on every run is not worth syncing.
 CACHE_DIR = os.path.join(os.environ.get('LOCALAPPDATA') or tempfile.gettempdir(),
@@ -674,7 +697,7 @@ ACCOUNT_FOLDER = {'TRANSIT': 'Return In Transit', 'DELIVERED': 'Return Delivered
                   'ORDER': 'Order Report', 'TICKET': '', 'PAYMENT': ''}
 # ERP exports serve all three accounts and sit in input/ itself. Your own sheets
 # (MANUAL, LEGACY) are never moved or renamed.
-ROOT_KINDS = ('GRN', 'DISPATCH')
+ROOT_KINDS = ('GRN', 'DISPATCH', 'POD')
 RENAMED_KINDS = ('TRANSIT', 'DELIVERED', 'ORDER')
 
 
@@ -1123,6 +1146,80 @@ def read_dispatch(log):
 
 
 
+POD_ID_SRC = 'Tracking ID'
+POD_TYPE_SRC = 'TYPE'
+POD_DATE_SRC = 'DATE'
+POD_YES, POD_NO = 'YES', 'NO'
+
+
+def pod_merge(types, typ, when):
+    """Record one POD line, keeping the earliest date seen for that type."""
+    prev = types.get(typ)
+    if typ not in types or (when and (prev is None or when < prev)):
+        types[typ] = when
+
+
+def _parse_pod(path):
+    """One POD workbook -> {tracking id: {POD type: earliest date or None}}. Every sheet
+    is read - the file keeps RETURN POD and PICKUP POD on separate sheets with the same
+    headers."""
+    seen = {}
+    n = 0
+    for sheet in _sheet_names(path):
+        it = _iter_sheet(path, sheet)
+        hdr = _hdr_of(next(it, []))
+        if not POD_MARKERS <= set(hdr):
+            continue
+        i_id, i_type = hdr.index(POD_ID_SRC), hdr.index(POD_TYPE_SRC)
+        i_date = hdr.index(POD_DATE_SRC) if POD_DATE_SRC in hdr else None
+        for row in it:
+            tid = norm(clean(row[i_id])) if i_id < len(row) else None
+            if not tid or tid == '-':
+                continue
+            typ = clean(row[i_type]) if i_type < len(row) else None
+            when = (clean(row[i_date]) if i_date is not None and i_date < len(row)
+                    else None)
+            if not isinstance(when, dt.datetime):
+                when = None
+            pod_merge(seen.setdefault(tid, {}), str(typ or sheet).strip().upper(), when)
+            n += 1
+    return seen, n
+
+
+def read_pod(log):
+    """Tracking ids in the courier POD sheet(s), with the POD type(s) each one is in.
+
+    The forward AWB turns up under PICKUP POD (parcel handed to the courier) and, for an
+    RTO, again under RETURN POD; a return AWB only ever under RETURN POD.
+
+    Returns ({normalised tracking id: {type: earliest date}}, whether any POD file was
+    found).
+    """
+    seen = {}
+    files = 0
+    for path in files_of('POD'):
+        f_seen, n = cached('pod-dates', path, _parse_pod)
+        for tid, types in f_seen.items():
+            mine = seen.setdefault(tid, {})
+            for typ, when in types.items():
+                pod_merge(mine, typ, when)
+        files += 1
+        log('  %-58s POD      %6d tracking ids'
+            % (os.path.relpath(path, INPUT_DIR)[:58], n))
+    return seen, bool(files)
+
+
+def pod_types(rec, pod):
+    """{POD type: earliest date} over every AWB of this row."""
+    types = {}
+    for c in MASTER_AWB_COLS:
+        n = norm(rec.get(c)) if rec.get(c) else None
+        if n:
+            for typ, when in pod.get(n, {}).items():
+                pod_merge(types, typ, when)
+    return types
+
+
 def read_all_sheets(path):
     """Every row of every sheet in a workbook, as dicts. A legacy master keeps one
     sheet per account, so reading only the first would lose two thirds of it."""
@@ -1325,7 +1422,7 @@ def collect(account, log):
     for path in input_files(account):
         rel = os.path.relpath(path, INPUT_DIR)
         kind = kind_of(path)
-        if kind in ('MANUAL', 'LEGACY', 'PAYMENT', 'ORDER', 'GRN', 'DISPATCH'):
+        if kind in ('MANUAL', 'LEGACY', 'PAYMENT', 'ORDER', 'GRN', 'DISPATCH', 'POD'):
             continue          # read separately, once, for all three sheets
         if kind is None:
             stats['skipped'].append(rel)
@@ -1501,10 +1598,10 @@ def read_old_master():
     # rather than its values, and calamine only ever returns values. read_only keeps it
     # to a row-by-row scan instead of building a cell object for all 1.6M cells.
     wb = openpyxl.load_workbook(MASTER, read_only=True, data_only=False)
-    for name in SHEETS:
-        if name not in wb.sheetnames:
+    for sheet in SHEETS + [PARKED_SHEET]:
+        if sheet not in wb.sheetnames:
             continue
-        ws = wb[name]
+        ws = wb[sheet]
         # The header is on row 2 now, but a master written before the SUBTOTAL band
         # was added has it on row 1 - so look for it rather than assuming.
         rows = ws.iter_rows(values_only=True)
@@ -1521,7 +1618,8 @@ def read_old_master():
             rec = {}
             # SRC is used here too, so a master saved in an older column layout still
             # upgrades cleanly instead of losing those values.
-            for c in RAW + MANUAL_COLS + TICKET_COLS + PAYMENT_COLS + ORDER_COLS:
+            for c in (RAW + MANUAL_COLS + TICKET_COLS + PAYMENT_COLS + ORDER_COLS
+                      + POD_COLS):
                 if c in FORMULA_COLS:
                     continue
                 for src in SRC.get(c, (c,)):
@@ -1544,8 +1642,10 @@ def read_old_master():
                     rec[c] = v
                     locked.add(c)
 
+            # a parked row names its account sheet in its first column
+            name = sheet if sheet in base else raw.get(PARKED_ACCOUNT)
             k = row_key(rec)
-            if not k[0] or too_old(rec):
+            if name not in base or not k[0] or too_old(rec):
                 continue
             if locked:
                 rec['_locked'] = locked
@@ -1678,7 +1778,8 @@ WIDTHS = {
     'RETURN CHARGE': 14, 'ORDER AMOUNT': 14, 'ORDER SETTLEMENT': 16,
     'RETURN DEBIT': 14, 'NET': 12,
     'STORE ORDER ID': 22, 'DISPATCH STATUS': 15, 'DISPATCH DATE': 14,
-    'DISPATCH VOUCHER': 18,
+    'DISPATCH VOUCHER': 18, 'PICKUP POD': 12, 'RETURN POD': 12,
+    RETURN_POD_DATE: 16,
 }
 
 NOTES = {
@@ -2134,8 +2235,36 @@ def write_master(data):
                     ws.write(row, i, v)
         if data[name]:
             ws.autofilter(HEADER_ROW - 1, 0, last - 1, len(HEADERS) - 1)
+    write_parked(wb, is_date)
     write_input_log(wb, f, log)
     wb.close()
+
+
+def write_parked(wb, is_date):
+    """The young in-transit rows left out of the account sheets, on a hidden sheet of
+    their own, so the next run reads them back (read_old_master) and moves each one to
+    its account sheet once it is YOUNG_TRANSIT_DAYS old. Without this a return left out
+    would be gone for good once it falls outside the portal reports' date window."""
+    rows = [(name, rec) for name in SHEETS for rec in PARKED.get(name, [])]
+    if not rows:
+        return
+    ws = wb.add_worksheet(PARKED_SHEET)
+    ws.hide()
+    hdr = [PARKED_ACCOUNT] + HEADERS
+    for i, h in enumerate(hdr):
+        ws.write(0, i, h)
+    formula = set(FORMULA_COLS)
+    for r, (name, rec) in enumerate(rows, start=1):
+        ws.write(r, 0, name)
+        locked = rec.get('_locked') or ()
+        for i, h in enumerate(HEADERS, start=1):
+            v = rec.get(h)
+            if v is None or (h in formula and h not in locked):
+                continue
+            if is_date[i - 1] and isinstance(v, (dt.datetime, dt.date)):
+                ws.write_datetime(r, i, v)
+            else:
+                ws.write(r, i, v)
 
 
 # ------------------------------------------------------------------ input cleanup
@@ -2285,8 +2414,9 @@ def drop_young_in_transit(data, args):
     for name, rows in data.items():
         drop = {id(r) for r in young.get(name, [])}
         data[name] = [r for r in rows if id(r) not in drop]
-    print('  -> left out of the sheet (they come back on a later run once they are older,'
-          ' delivered or received)\n')
+        PARKED[name] = young.get(name, [])
+    print('  -> left out of the sheet, kept on the hidden %s sheet (they come back on a'
+          ' later run once they are older, delivered or received)\n' % PARKED_SHEET)
 
 
 # --------------------------------------------------------------------------- main
@@ -2342,6 +2472,8 @@ def main():
         grn_awbs, grn_orders = read_grn(print)
     with phase('dispatch report'):
         dispatched = read_dispatch(print)
+    with phase('POD report'):
+        pod, have_pod = read_pod(print)
     if grn_awbs:
         print('  %d tracking ids booked in by the ERP' % len(grn_awbs))
     if pay_oli:
@@ -2358,7 +2490,8 @@ def main():
               'new': 0, 'model_lookup': 0, 'model_wh': 0, 'model_fbm': 0, 'model_blank': 0,
               'manual_hit': 0, 'legacy_hit': 0, 'payment_hit': 0, 'charge_hit': 0,
               'order_hit': 0, 'too_old': 0, 'settled_hit': 0, 'grn_hit': 0,
-              'debit_hit': 0, 'dispatch_hit': 0}
+              'debit_hit': 0, 'dispatch_hit': 0,
+              'pod_hit': {c: 0 for c in POD_TYPES}}
     for name in SHEETS:
         print('%s' % name)
         with phase('read %s' % name):
@@ -2502,6 +2635,14 @@ def main():
                     totals['grn_hit'] += 1
                 rec['OMSGURU STATUS'] = GRN_STATUS
 
+            # Refreshed every run from the POD sheet; without one the last value stays.
+            if have_pod:
+                types = pod_types(rec, pod)
+                for c in POD_TYPES:
+                    rec[c] = POD_YES if c in types else POD_NO
+                    if c in types:
+                        totals['pod_hit'][c] += 1
+                rec[RETURN_POD_DATE] = types.get('RETURN POD')
             # Bot only: what OMSGuru says about a return the ERP has not booked in (checked
             # after the ERP, before the manual sheet). A received status is never replaced.
             oms = OMS_RESULTS.get(row_key(rec))
@@ -2551,6 +2692,8 @@ def main():
     print('rows with an order settlement: %d' % totals['settled_hit'])
     print('rows with a return debit: %d' % totals['debit_hit'])
     print('rows marked dispatched from the dispatch sheet: %d' % totals['dispatch_hit'])
+    for c in POD_TYPES:
+        print('rows in %s: %d' % (c, totals['pod_hit'][c]))
     print('OMSGURU STATUS set to "%s" from the GRN report: %d rows'
           % (GRN_STATUS, totals['grn_hit']))
     print('rows skipped as older than %s: %d'

@@ -10,7 +10,16 @@ On demand: `/myntraspf`.
   and an `OMS_RESULTS` hook added). The previous master is the base: rows update, never duplicate.
 * Inputs: Myntra returns / delivery (last 30 days) and orders (last 60 days, 30-day jobs) per
   account; ERP GRN + dispatch; from Drive `SPF/MYNTRA/input`: Ticket1 + payment exports per account
-  (still dropped by hand), MANUAL RETURN, LEGACY MASTER.
+  (still dropped by hand), MANUAL RETURN, LEGACY MASTER, and the courier POD sheet at the input
+  root (`MYNTRA RETURN PICKUP POD.xlsx` -> PICKUP POD / RETURN POD / RETURN POD DATE, the last
+  columns; refreshed every run, kept as they were when the file is missing).
+* **Young in-transit returns stay off the sheets**: a return still in transit, not received or
+  settled, and created fewer than 60 days ago (`YOUNG_TRANSIT_DAYS`) is not on MAIN / DBCC /
+  FMCC. It waits on the hidden sheet `YOUNG IN TRANSIT` of the master (the portal reports only
+  cover 30 days, so it would otherwise be lost) and moves to its account sheet on the first run
+  after it turns 60 days old, is delivered or is received. OMSGuru checks the parked rows too.
+* A formula linking another workbook (e.g. `=VLOOKUP(G5,[1]Orders!$E:$F,2,)` pasted into a
+  yellow column) reads as empty: written back it made Excel repair the file on every open.
 * **Return received**: ERP GRN, then **OMSGuru** (only rows whose FINAL RETURN STATUS is blank,
   created in the last 180 days, matched on AWBs / store order id: "Return Received OMSGuru" or the
   current status), then the manual sheet. The engine runs twice (before and after OMSGuru).

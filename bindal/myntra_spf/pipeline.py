@@ -186,13 +186,18 @@ def fetch_erp(dest: Path) -> list[str]:
 
 def hand_inputs(folder: DriveFolder, dest: Path) -> list[str]:
     """From Drive SPF/MYNTRA/input: the files still dropped by hand (tickets, payments, manual
-    returns, legacy master). The portal report folders are fetched fresh instead."""
+    returns, legacy master, courier POD sheet). The portal report folders are fetched fresh
+    instead."""
     src = folder.subfolder("input")
     if not src:
         return []
     got = []
     for name, item in src.children().items():
         if item["mimeType"] != DriveFolder.FOLDER:
+            # the courier POD sheet sits at the input root (GRN / dispatch come from the ERP)
+            if "POD" in name.upper() and name.lower().endswith(".xlsx"):
+                src.download(name, dest / name)
+                got.append(name)
             continue
         sub = DriveFolder(item["id"], folder.http)
         if name in ACCOUNTS:
@@ -356,16 +361,18 @@ def open_returns(path: Path, since: date) -> dict[tuple, dict]:
     """(order_line_id, return_id) -> lookup terms for every row whose FINAL RETURN STATUS is
     blank, created since `since`. Only these are looked up in OMSGuru."""
     from openpyxl import load_workbook
-    from .engine import FIRST_DATA_ROW, HEADER_ROW, norm
+    from .engine import FIRST_DATA_ROW, HEADER_ROW, PARKED_SHEET, norm
     wb = load_workbook(path, read_only=True)
     out = {}
-    for name in ACCOUNTS:
+    # the account sheets, and the hidden sheet of young in-transit rows (header on row 1)
+    for name in [*ACCOUNTS, PARKED_SHEET]:
         if name not in wb.sheetnames:
             continue
         ws = wb[name]
-        rows = ws.iter_rows(min_row=HEADER_ROW, values_only=True)
+        parked = name == PARKED_SHEET
+        rows = ws.iter_rows(min_row=1 if parked else HEADER_ROW, values_only=True)
         head = [str(h).strip() if h is not None else "" for h in next(rows)]
-        for _ in range(FIRST_DATA_ROW - HEADER_ROW - 1):
+        for _ in range(0 if parked else FIRST_DATA_ROW - HEADER_ROW - 1):
             next(rows, None)
         for values in rows:
             r = dict(zip(head, values))
@@ -424,7 +431,8 @@ def run_engine(work: Path, oms: dict | None = None) -> None:
     engine = importlib.reload(engine)             # picks up MYNTRA_SPF_DIR
     engine.backup = lambda: None                  # Drive keeps the versions
     engine.OMS_RESULTS = oms or {}
-    argv, sys.argv = sys.argv, ["myntra_spf", "--in-transit", "y"]
+    # young in-transit returns stay off the sheets (parked on a hidden sheet until 60 days)
+    argv, sys.argv = sys.argv, ["myntra_spf", "--in-transit", "n"]
     try:
         engine.main()
     finally:
