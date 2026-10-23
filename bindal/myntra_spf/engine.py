@@ -1952,6 +1952,7 @@ SUMMARY_COLS = [
     ('RETURN RECEIVED', 'count', None, [('FINAL RETURN STATUS', 'Return Received')]),
     ('SPF PAID', 'count', None, [('FINAL RETURN STATUS', 'SPF Paid')]),
     ('SPF ACCEPTED', 'count', None, [('FINAL RETURN STATUS', 'SPF Accepted')]),
+    ('SPF ACCEPTED AMT', 'sum', 'ORDER AMOUNT', [('FINAL RETURN STATUS', 'SPF Accepted')]),
     ('PAYMENT RECEIVED', 'count', None, [('FINAL RETURN STATUS', 'Payment Received')]),
     ('PENDING', 'count', None, [_PENDING]),
     ('PENDING AMT', 'sum', 'ORDER AMOUNT', [_PENDING]),
@@ -1968,7 +1969,7 @@ SUMMARY_COLS = [
 # The day-wise sheet has ~750 rows, so it carries only the columns that answer "what is
 # still open from that day" - enough to act on without making Excel crawl.
 DATE_SUMMARY_COLS = [c for c in SUMMARY_COLS if c[0] in (
-    'TOTAL RETURNS', 'RETURN RECEIVED', 'SPF PAID', 'SPF ACCEPTED', 'PAYMENT RECEIVED', 'PENDING',
+    'TOTAL RETURNS', 'RETURN RECEIVED', 'SPF PAID', 'SPF ACCEPTED', 'SPF ACCEPTED AMT', 'PAYMENT RECEIVED', 'PENDING',
     'PENDING AMT', 'ELIGIBLE CLAIMS', 'PENDING CLAIM AMT', 'SPF PAID AMT')]
 SUMMARY_SHEET = 'SUMMARY'
 DATE_SUMMARY_SHEET = 'DATE SUMMARY'
@@ -1977,6 +1978,114 @@ DATE_SUMMARY_SHEET = 'DATE SUMMARY'
 NOT_WORKED_MODELS = ['SJIT', 'FBM']
 SUMMARY_EXCLUDE_MODELS = NOT_WORKED_MODELS
 
+
+
+# ------------------------------------------------------------------- claim TAT sheet
+# Every claim raised (a TICKET ID on an account sheet), by account and the month the
+# ticket was created: how many, and how many inside the SPF policy window -
+#   delivered back (deliver_to_seller_date) -> raised within 7 days of the delivery
+#   never delivered back                    -> raised from day 60 to day 120 after
+#                                              return_created_date
+# with what became of them. Myntra order lines are one unit each, so QTY = claims.
+# Worked out here as values (the ticket's date is not on the account sheets).
+CLAIM_TAT_SHEET = 'CLAIM TAT'
+CLAIM_TAT_COLS = ['CLAIMS RAISED', 'CLAIM QTY', 'CLAIM AMT', 'WITHIN TAT', 'WITHIN TAT QTY',
+                  'WITHIN TAT AMT', 'OUTSIDE TAT', 'OUTSIDE TAT QTY', 'OUTSIDE TAT AMT',
+                  'ACCEPTED', 'ACCEPTED AMT', 'PAID', 'PAID AMT', 'SPF PAID AMT',
+                  'REJECTED', 'REJECTED AMT', 'OPEN', 'OPEN AMT']
+CLAIM_PAID_STATUSES = {'PAYMENT_COMPLETED'}
+CLAIM_ACCEPTED_STATUSES = {'ACCEPT', 'INVOICE_CREATED', 'INVOICE_INITIATED', 'PAYMENT_INITIATED'}
+
+
+def claim_tat(rec):
+    """WITHIN / OUTSIDE the policy window for the claim on this row, '' when its date is unknown."""
+    raised = rec.get('_ticket_created')
+    if not isinstance(raised, dt.datetime) or raised == dt.datetime.min:
+        return ''
+    delivered = rec.get('deliver_to_seller_date')
+    if isinstance(delivered, dt.datetime) and delivered.date() <= raised.date():
+        return 'WITHIN' if (raised.date() - delivered.date()).days <= 7 else 'OUTSIDE'
+    created = rec.get('return_created_date')
+    if not isinstance(created, dt.datetime):
+        return ''
+    return 'WITHIN' if 60 <= (raised.date() - created.date()).days <= 120 else 'OUTSIDE'
+
+
+def claim_outcome(rec):
+    st = norm(rec.get('STATUS'))
+    if st in CLAIM_PAID_STATUSES or rec.get('SPF PAID') is not None:
+        return 'PAID'
+    if st in CLAIM_ACCEPTED_STATUSES:
+        return 'ACCEPTED'
+    if st == 'REJECT':
+        return 'REJECTED'
+    return 'OPEN'
+
+
+def claim_tat_rows(data):
+    """{(account, month): {column: value}} over every row with a ticket."""
+    out = {}
+    for name in SHEETS:
+        for rec in data[name]:
+            tid = rec.get('TICKET ID')
+            if tid in (None, ''):
+                continue
+            raised = rec.get('_ticket_created')
+            month = (raised.strftime('%Y-%m') if isinstance(raised, dt.datetime)
+                     and raised != dt.datetime.min else 'NO DATE')
+            amt = rec.get('ORDER AMOUNT') if isinstance(rec.get('ORDER AMOUNT'), (int, float)) else 0
+            row = out.setdefault((name, month), dict.fromkeys(CLAIM_TAT_COLS, 0))
+            row['CLAIMS RAISED'] += 1
+            row['CLAIM QTY'] += 1
+            row['CLAIM AMT'] += amt
+            tat = claim_tat(rec)
+            if tat:
+                row['%s TAT' % tat] += 1
+                row['%s TAT QTY' % tat] += 1
+                row['%s TAT AMT' % tat] += amt
+            outcome = claim_outcome(rec)
+            row[outcome] += 1
+            row[outcome + ' AMT'] += amt
+            if isinstance(rec.get('SPF PAID'), (int, float)):
+                row['SPF PAID AMT'] += rec['SPF PAID']
+    return out
+
+
+def write_claim_tat(wb, f, data):
+    rows = claim_tat_rows(data)
+    ws = wb.add_worksheet(CLAIM_TAT_SHEET)
+    head = ['ACCOUNT', 'TICKET MONTH'] + CLAIM_TAT_COLS
+    for i, h in enumerate(head):
+        put(ws, 0, i, h, f['head_work'])
+        ws.set_column(i, i, 12 if i < 2 else 15)
+    ws.freeze_panes(1, 2)
+
+    def line(r, account, label, vals, tag=None):
+        put(ws, r, 0, account, f['tot_%s' % tag] if tag else None)
+        put(ws, r, 1, label, f['tot_%s' % tag] if tag else None)
+        for j, c in enumerate(CLAIM_TAT_COLS, start=2):
+            kind = 'amount' if c.endswith('AMT') else 'count'
+            put(ws, r, j, vals[c], f['tot_%s_%s' % (tag, kind)] if tag else f[kind])
+
+    r, grand = 1, dict.fromkeys(CLAIM_TAT_COLS, 0)
+    for name in SHEETS:
+        months = sorted(m for a, m in rows if a == name)
+        if not months:
+            continue
+        total = dict.fromkeys(CLAIM_TAT_COLS, 0)
+        for m in months:
+            line(r, name, m, rows[(name, m)])
+            for c in CLAIM_TAT_COLS:
+                total[c] += rows[(name, m)][c]
+                grand[c] += rows[(name, m)][c]
+            r += 1
+        line(r, name, 'TOTAL', total, 'mid')
+        r += 2
+    line(r, 'ALL', 'GRAND TOTAL', grand, 'grand')
+    r += 2
+    put(ws, r, 0, 'WITHIN TAT: raised within 7 days of the return delivered to us, or from day 60 to '
+                  'day 120 after the return was created when it never came back (SPF policy).')
+    put(ws, r + 1, 0, 'Amounts are ORDER AMOUNT of the claimed order lines; SPF PAID AMT is what Myntra paid.')
 
 
 def write_summary(wb, f, data, title, cols, by_day):
@@ -2201,6 +2310,7 @@ def write_master(data):
     ws, r = write_summary(wb, f, data, SUMMARY_SHEET, SUMMARY_COLS, False)
     write_coverage(ws, f, r + 3, log, data)
     write_summary(wb, f, data, DATE_SUMMARY_SHEET, DATE_SUMMARY_COLS, True)
+    write_claim_tat(wb, f, data)
 
     col_fmt = [cell_format(f, h) for h in HEADERS]
     # Which columns hold what, decided once for all three sheets. Per cell this was
@@ -2622,6 +2732,7 @@ def main():
             if t and t[1] is not None:
                 same = str(rec.get('TICKET ID')) == str(t[1])
                 rec['TICKET ID'], rec['STATUS'] = t[1], t[2]
+                rec['_ticket_created'] = t[0]          # for the CLAIM TAT sheet only
                 if t[3] is not None or not same:      # bot only: keep a known reason
                     rec['REJECTION REASON'] = t[3]
 

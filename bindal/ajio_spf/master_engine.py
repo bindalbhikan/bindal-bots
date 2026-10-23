@@ -271,6 +271,7 @@ TICKET_FIELDS = (
     ("TICKET ID", "ticketId"),
     ("STATUS", "status"),
     ("SUBISSUETYPE", "subIssueType"),
+    ("TICKET DATE", "createdDate"),
 )
 # The conversation split by side: our own latest comment and seller support's
 # latest reply get separate columns, so it is plain who is waiting on whom.
@@ -1045,6 +1046,7 @@ def read_tickets():
             entry = {master: get(field) for master, field in TICKET_FIELDS}
             # Stored as a number, like the ticket ids typed in before.
             entry["TICKET ID"] = int(ticket_id) if ticket_id.isdigit() else ticket_id
+            entry["TICKET DATE"] = as_timestamp(entry["TICKET DATE"]) or entry["TICKET DATE"]
             if comments is not None:
                 entry.update(conversation.get(ticket_id, dict.fromkeys(COMMENT_HEADERS)))
             else:
@@ -2078,6 +2080,7 @@ def write(final_headers, records, out_index, log):
         sheet.freeze_panes = freeze
     sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(records) + 1}"
     last = write_summary(workbook, column_of, records, out_index)
+    write_claim_tat(workbook, records, out_index)
     write_coverage(workbook, last + 3, log)
     write_input_log(workbook, log)
     try:
@@ -2085,6 +2088,106 @@ def write(final_headers, records, out_index, log):
     except AttributeError:
         pass
     workbook.save(SOURCE_MASTER)
+
+
+# Every claim raised (a TICKET ID on Sheet1), by account and the month the ticket was
+# created (TICKET DATE): how many, and how many inside AJIO's window - the same one
+# CLAIM STATUS uses:
+#   delivered to us (Delivery Challan Date) -> raised within 7 days of it
+#   still in transit                        -> raised from day 60 to day 90 after the
+#                                              Return Created Date
+# with what became of them. Values, worked out at each run.
+CLAIM_TAT_SHEET = "CLAIM TAT"
+CLAIM_TAT_COLUMNS = (
+    "CLAIMS RAISED", "CLAIM QTY", "CLAIM AMT", "WITHIN TAT", "WITHIN TAT QTY", "WITHIN TAT AMT",
+    "OUTSIDE TAT", "OUTSIDE TAT QTY", "OUTSIDE TAT AMT", "PAID", "PAID AMT", "G4 PAID AMT",
+    "RESOLVED", "RESOLVED AMT", "REJECTED", "REJECTED AMT", "OPEN", "OPEN AMT",
+)
+
+
+def claim_tat(raised, delivered, created):
+    """WITHIN / OUTSIDE the window for a claim raised on `raised`, "" when a date is missing."""
+    if raised is None:
+        return ""
+    if delivered is not None and delivered <= raised:
+        return "WITHIN" if (raised - delivered).days <= 7 else "OUTSIDE"
+    if created is None:
+        return ""
+    return "WITHIN" if 60 <= (raised - created).days <= 90 else "OUTSIDE"
+
+
+def write_claim_tat(workbook, records, record_index):
+    def get(record, header):
+        return record[record_index[header]] if header in record_index else None
+
+    rows = {}
+    for record in records:
+        if text(get(record, "TICKET ID")) in NO_TICKET:
+            continue
+        raised = parse_date(get(record, "TICKET DATE"))
+        month = f"{raised:%Y-%m}" if raised else "NO DATE"
+        account = text(get(record, SUMMARY_ACCOUNT_HEADER))
+        qty = as_number(get(record, "Return QTY")) or 0
+        amount = as_number(get(record, SUMMARY_AMOUNT_HEADER)) or 0
+        g4 = as_number(get(record, "G4 PAYMENT")) or 0
+        ic = as_number(get(record, "IC REVERSE")) or 0
+        row = rows.setdefault((account, month), dict.fromkeys(CLAIM_TAT_COLUMNS, 0))
+        row["CLAIMS RAISED"] += 1
+        row["CLAIM QTY"] += qty
+        row["CLAIM AMT"] += amount
+        tat = claim_tat(raised, parse_date(get(record, "Delivery Challan Date")),
+                        parse_date(get(record, "Return Created Date")))
+        if tat:
+            row[f"{tat} TAT"] += 1
+            row[f"{tat} TAT QTY"] += qty
+            row[f"{tat} TAT AMT"] += amount
+        status = text(get(record, "STATUS"))
+        outcome = ("PAID" if g4 and not ic else "REJECTED" if status == "REJECTED"
+                   else "RESOLVED" if status in ("RESOLVED", "APPROVED", "CLOSED") else "OPEN")
+        row[outcome] += 1
+        row[f"{outcome} AMT"] += amount
+        row["G4 PAID AMT"] += g4 if not ic else 0
+
+    sheet = workbook.create_sheet(CLAIM_TAT_SHEET)
+    headers = ["ACCOUNT", "TICKET MONTH"] + list(CLAIM_TAT_COLUMNS)
+    bold = Font(name="Calibri", size=10, bold=True, color="FF000000")
+    yellow = PatternFill("solid", fgColor=SUMMARY_HEADER_FILL)
+    blue = PatternFill("solid", fgColor=SUMMARY_TOTAL_FILL)
+
+    def line(row_no, account, label, values, fill=None):
+        sheet.cell(row_no, 1, account)
+        sheet.cell(row_no, 2, label)
+        for position, header in enumerate(CLAIM_TAT_COLUMNS, start=3):
+            cell = sheet.cell(row_no, position, round(values[header], 2))
+            cell.number_format = AMOUNT_FORMAT if header.endswith("AMT") else COUNT_FORMAT
+        if fill is not None:
+            for position in range(1, len(headers) + 1):
+                sheet.cell(row_no, position).font = bold
+                sheet.cell(row_no, position).fill = fill
+
+    for position, header in enumerate(headers, start=1):
+        sheet.cell(1, position, header)
+        sheet.column_dimensions[get_column_letter(position)].width = max(len(header) + 2, 12)
+    for position in range(1, len(headers) + 1):
+        sheet.cell(1, position).font = bold
+        sheet.cell(1, position).fill = yellow
+    sheet.freeze_panes = "C2"
+    row_no, grand = 2, dict.fromkeys(CLAIM_TAT_COLUMNS, 0)
+    for account in sorted({a for a, _ in rows}):
+        total = dict.fromkeys(CLAIM_TAT_COLUMNS, 0)
+        for month in sorted(m for a, m in rows if a == account):
+            line(row_no, account, month, rows[(account, month)])
+            for header in CLAIM_TAT_COLUMNS:
+                total[header] += rows[(account, month)][header]
+                grand[header] += rows[(account, month)][header]
+            row_no += 1
+        line(row_no, account, "TOTAL", total, blue)
+        row_no += 2
+    line(row_no, "ALL", "GRAND TOTAL", grand, yellow)
+    sheet.cell(row_no + 2, 1, "WITHIN TAT: raised within 7 days of the Delivery Challan Date, or from day 60 "
+                              "to day 90 after the Return Created Date for a return still in transit.")
+    sheet.cell(row_no + 3, 1, "Amounts are FWD B2B Invoice Amt of the claimed lines; G4 PAID AMT is what AJIO "
+                              "paid (not reversed by an IC).")
 
 
 def write_summary(workbook, column_of, records, record_index):

@@ -155,3 +155,25 @@ def test_ticket_details_rows_and_unchanged_tickets_are_not_read_again():
     out = tickets.ticket_details(Portal(), "MAIN", [{**t, "lastModifiedOn": "2099-10-03T10:00:00.000Z"}], old)
     assert Portal.reads == 1 and out[0]["REASON"].startswith("Not_Eligible")
     assert tickets.ticket_details(Portal(), "MAIN", [{**t, "createdOn": "2020-01-01T00:00:00.000Z"}], {}) == []
+
+
+def test_claim_tat_rows_count_within_and_outside_the_policy_window():
+    import datetime as dt
+    from bindal.myntra_spf import engine
+    d = dt.datetime
+    base = {"TICKET ID": 1, "ORDER AMOUNT": 100.0}
+    data = {name: [] for name in engine.SHEETS}
+    data["MAIN"] = [
+        {**base, "_ticket_created": d(2026, 10, 5), "deliver_to_seller_date": d(2026, 10, 1), "STATUS": "ACCEPT"},
+        {**base, "_ticket_created": d(2026, 10, 20), "deliver_to_seller_date": d(2026, 10, 1), "STATUS": "REJECT"},
+        {**base, "_ticket_created": d(2026, 10, 23), "return_created_date": d(2026, 8, 1), "STATUS": "PAYMENT_COMPLETED",
+         "SPF PAID": 90.0},                                                           # day 83: within
+        {**base, "_ticket_created": d(2026, 9, 2), "return_created_date": d(2026, 8, 20), "STATUS": "OPEN"},  # day 13
+        {"TICKET ID": None, "ORDER AMOUNT": 50.0},                                    # no claim
+    ]
+    rows = engine.claim_tat_rows(data)
+    oct_, sep = rows[("MAIN", "2026-10")], rows[("MAIN", "2026-09")]
+    assert (oct_["CLAIMS RAISED"], oct_["CLAIM AMT"], oct_["WITHIN TAT"], oct_["OUTSIDE TAT"]) == (3, 300.0, 2, 1)
+    assert (oct_["ACCEPTED"], oct_["REJECTED"], oct_["PAID"], oct_["SPF PAID AMT"]) == (1, 1, 1, 90.0)
+    assert (sep["OUTSIDE TAT"], sep["OPEN"], sep["OPEN AMT"]) == (1, 1, 100.0)
+    assert ("SPF ACCEPTED AMT", "sum", "ORDER AMOUNT", [("FINAL RETURN STATUS", "SPF Accepted")]) in engine.SUMMARY_COLS

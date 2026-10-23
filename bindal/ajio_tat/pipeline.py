@@ -350,8 +350,9 @@ def pickup_pending_report(df, now=None) -> list:
     """Third Telegram message: every processed AWB still waiting for pickup (last TRACK_DAYS days),
     TAT passed ("Over") first, then still within TAT ("Due"), with a short ready-to-copy mail
     for the courier / AJIO. The mail is plain text (wraps on a phone, pastes cleanly); the AWB list
-    is a narrow table when it fits in the one message, otherwise every AWB comes in an attached
-    Excel (to forward with the mail). A telegram report; [] when nothing is waiting."""
+    is a narrow table when it fits in the one message, and every AWB, with its order, times and AJIO
+    pickup ticket id, comes in the attached Excel (to forward with the mail). A telegram report;
+    [] when nothing is waiting."""
     now = now or pd.Timestamp.now()
     since = now.normalize() - pd.Timedelta(days=num("TRACK_DAYS", 15))
     pend = df[awaiting_pickup_mask(df) & (df["Order Time"] >= since)].copy()
@@ -372,10 +373,12 @@ def pickup_pending_report(df, now=None) -> list:
 
     rows = [{"AWB": text(r["AWB"]), "Courier": text(r["Courier"]), "TAT": "Over" if r["_over"] else "Due",
              "Order ID": text(r["Order ID"]), "Order Time": when(r["Order Time"]),
-             "Ready (RTS)": when(r["RTS Time"]), "Pickup Deadline": when(r["Dispatch Deadline"])}
+             "Ready (RTS)": when(r["RTS Time"]), "Pickup Deadline": when(r["Dispatch Deadline"]),
+             "Pickup Ticket": text(r.get("Pickup Ticket"))}
             for _, r in pend.iterrows()]
+    n_ticket = sum(1 for r in rows if r["Pickup Ticket"])
     return [f"📮 <b>Pickup Pending · {len(pend)} AWB</b>",
-            f"🔴 Over (TAT passed) {n_over} · 🟡 Due {len(pend) - n_over}",
+            f"🔴 Over (TAT passed) {n_over} · 🟡 Due {len(pend) - n_over} · 🎫 AJIO ticket {n_ticket}",
             "",
             f"<b>Subject:</b> Pickup Pending - POB ID {pob} - {len(pend)} shipments",
             "",
@@ -737,7 +740,7 @@ def run(args) -> int:
             telegram.send(score)
         pending = pickup_pending_report(df)
         if pending:
-            telegram.send_report(pending, "AJIO_pickup_pending")
+            telegram.send_report(pending, "AJIO_pickup_pending", excel=True)   # the Excel has the ticket ids
     dashboard.publish("ajio_tat", {**dashboard_data(df), "lookup_errors": len(errors)})
     print(df["TAT Result"].value_counts().to_string())
     return 0

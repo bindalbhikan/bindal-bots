@@ -231,15 +231,17 @@ def write_xlsx(report: list, path) -> Path | None:
     return path
 
 
-def send_report(report: list, name: str, dry: bool = False) -> bool:
+def send_report(report: list, name: str, dry: bool = False, excel: bool = False) -> bool:
     """Send a report of text and Listing blocks: one message with the lists inline when it fits,
     otherwise the message with the lists' titles plus an Excel (name_YYYY-MM-DD_HHMM.xlsx) of every row.
-    dry: print the message and keep the Excel locally instead of sending."""
-    if fits(report):
+    excel: the Excel goes out even when the lists fit inline (the rows carry more columns than the
+    inline table). dry: print the message and keep the Excel locally instead of sending."""
+    inline = fits(report)
+    if inline and not excel:
         text = render(report)
         print(text) if dry else None
         return True if dry else send(text)
-    text = render(report, inline=False)
+    text = render(report, inline=inline)
     path = write_xlsx(report, Path(tempfile.mkdtemp(prefix="tg_")) / f"{name}_{datetime.now():%Y-%m-%d_%H%M}.xlsx")
     if dry:
         print(text)
