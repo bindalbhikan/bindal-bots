@@ -177,3 +177,35 @@ def test_claim_tat_rows_count_within_and_outside_the_policy_window():
     assert (oct_["ACCEPTED"], oct_["REJECTED"], oct_["PAID"], oct_["SPF PAID AMT"]) == (1, 1, 1, 90.0)
     assert (sep["OUTSIDE TAT"], sep["OPEN"], sep["OPEN AMT"]) == (1, 1, 100.0)
     assert ("SPF ACCEPTED AMT", "sum", "ORDER AMOUNT", [("FINAL RETURN STATUS", "SPF Accepted")]) in engine.SUMMARY_COLS
+
+
+def test_portal_tickets_reads_recent_claims_again_and_keeps_cached_rows(tmp_path, monkeypatch):
+    from bindal.myntra_spf import tickets
+    monkeypatch.setattr(tickets, "ticket_details", lambda portal, account, rows, cached: [
+        {"TICKET ID": str(t["ticketId"]), "REASON": "R"} for t in rows])
+    old = {"ticketId": 1, "orderLineId": 11, "status": "REJECT", "createdOn": "2026-10-01T00:00:00.000Z"}
+    new = {"ticketId": 2, "orderLineId": 12, "status": "OPEN", "createdOn": "2026-10-20T00:00:00.000Z"}
+
+    class Portal:
+        def spf_tickets(self, since=None):
+            return [new, old] if since else [old, old]     # the full list missed #2 and doubled #1
+
+    details = {}
+    olis = tickets.portal_tickets(Portal(), "MAIN", tmp_path, {}, details)
+    assert olis == {"11", "12"} and [d["TICKET ID"] for d in details["MAIN"]] == ["1", "2"]
+
+
+def test_cached_ticket_rows_stay_when_the_list_misses_them():
+    from bindal.myntra_spf import tickets
+
+    class Portal:
+        def spf_claim(self, tid):
+            return {}
+
+        def spf_comments(self, fw):
+            return []
+
+    cached = {"5": {"ACCOUNT": "MAIN", "TICKET ID": "5", "STATUS": "OPEN"},
+              "6": {"ACCOUNT": "DBCC", "TICKET ID": "6"}}
+    out = tickets.ticket_details(Portal(), "MAIN", [], cached)
+    assert [d["TICKET ID"] for d in out] == ["5"]

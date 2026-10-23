@@ -150,6 +150,13 @@ def portal_tickets(portal, account: str, dest: Path, cached: dict | None = None,
     from .engine import norm
     rows = portal.spf_tickets()
     if details is not None:
+        # The full list is 35 pages and the portal's order can shift while they are read (on
+        # 23 Oct 2026 one read missed 900 of MAIN's 2,288 recent claims): the recent ones are
+        # read again on their own with the claim date filter, a short and steady list.
+        since = datetime.now() - timedelta(days=num("MYNTRA_SPF_DETAIL_DAYS", 120))
+        seen = set()
+        rows = [t for t in rows + portal.spf_tickets(since=since)
+                if not (t.get("ticketId") in seen or seen.add(t.get("ticketId")))]
         details[account] = ticket_details(portal, account, rows, cached or {})
         reason = {d["TICKET ID"]: d["REASON"] for d in details[account] if d.get("REASON")}
         for t in rows:
@@ -247,6 +254,10 @@ def ticket_details(portal, account: str, rows: list[dict], cached: dict[str, dic
             out[row["TICKET ID"]] = row
     for t in todo[cap:]:
         out[str(t["ticketId"])] = cached.get(str(t["ticketId"])) or detail_row(account, t, {}, [])
+    # a claim already on the sheet stays there, even when this run's list missed it
+    for key, c in cached.items():
+        if key not in out and c.get("ACCOUNT") == account:
+            out[key] = c
     log.info("%s: %d claims on the TICKETS sheet (%d read now, %d unchanged)", account, len(out),
              min(len(todo), cap), len(keep) - len(todo))
     return sorted(out.values(), key=lambda d: d["TICKET ID"], reverse=True)
