@@ -1,4 +1,6 @@
 # Every bot in one environment (Python 3.12)
+# Ultron (ultron/, its own package), installed from this repo
+-e ./ultron[full]
 pandas>=2.2
 openpyxl>=3.1
 requests>=2.31

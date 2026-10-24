@@ -22,9 +22,29 @@ crons = ["30 1,3,4,5,8 * * *", "0 10,12 * * *"]
 # Dashboard address for /dashboard sign-in links (SESSION_KEY secret signs them).
 DASHBOARD_PAGE = "https://bindal-dashboard.bhikan-serein.workers.dev"
 
+# What Ultron may start after an Approve tap (ultron/worker/agent.js): the same workflows
+# and inputs as [actions] in ../agent.toml (tests/test_agent_setup.py checks they match).
+[vars.AGENT_ACTIONS]
+sale = { workflow = "sale.yml", inputs = ["from", "to", "today"] }
+vms = { workflow = "vms.yml", inputs = ["from", "to"] }
+ajiotat = { workflow = "ajio-tat.yml", inputs = ["days", "orders"] }
+ajiospf = { workflow = "ajio-spf.yml", inputs = ["dry_run"] }
+myntraspf = { workflow = "myntra-spf.yml", inputs = [] }
+invpush = { workflow = "inv-push.yml", inputs = ["dry_run"] }
+morning = { workflow = "morning.yml", inputs = ["day"] }
+sla = { workflow = "sla.yml", inputs = [] }
+labels = { workflow = "labels.yml", inputs = [] }
+stock = { workflow = "stock.yml", inputs = [] }
+evening = { workflow = "evening.yml", inputs = [] }
+weekly = { workflow = "weekly.yml", inputs = [] }
+deadstock = { workflow = "deadstock.yml", inputs = [] }
+listings = { workflow = "listings.yml", inputs = [] }
+mis = { workflow = "mis.yml", inputs = ["day"] }
+myntratat = { workflow = "myntra-tat.yml", inputs = [] }
+
 # Latest numbers of each bot for the dashboard (worker/../dashboard reads the same namespace).
 # The bots POST them to /api/push/<key> with the DASHBOARD_TOKEN secret.
-# Workers AI (free daily allocation) for the ops agent: POST /api/ai with the DASHBOARD_TOKEN.
+# Workers AI (free daily allocation) for Ultron: POST /api/ai with the DASHBOARD_TOKEN.
 [ai]
 binding = "AI"
 

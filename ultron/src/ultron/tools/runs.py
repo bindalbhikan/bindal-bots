@@ -1,4 +1,4 @@
-"""The agent's tools. Read-only: nothing here starts, changes or sends anything.
+"""Built-in tools "runs": the bots' GitHub Actions runs. Read-only: nothing here starts, changes or sends anything.
 
 Each returns text for the model, kept short (MAX_CHARS): a log is searched or tailed, a sheet
 summarised, never sent whole.
@@ -9,9 +9,8 @@ import json
 import re
 from pathlib import Path
 
-import pandas as pd
-from . import github
-from .llm import tool
+from ..integrations import github
+from ..core.llm import tool
 
 MAX_CHARS = 8000          # every step sends the whole conversation again: keep results small
 
@@ -93,6 +92,10 @@ def sheet_summary(run_id: int, path: str, sheet: str = "", group_by: str = "", m
     f = (_out(run_id) / path).resolve()
     if not f.is_file() or _out(run_id).resolve() not in f.parents:
         return f"no file {path!r} in run {run_id}"
+    try:
+        import pandas as pd
+    except ImportError:
+        return "pandas is not installed here (pip install 'ultron[full]'): xlsx files cannot be read"
     xl = pd.ExcelFile(f)
     name = sheet or xl.sheet_names[0]
     if name not in xl.sheet_names:
@@ -116,4 +119,4 @@ def sheet_summary(run_id: int, path: str, sheet: str = "", group_by: str = "", m
     return _cut("\n\n".join(parts))
 
 
-READ_ONLY = [recent_runs, run_log, run_files, sheet_summary]
+TOOLS = [recent_runs, run_log, run_files, sheet_summary]

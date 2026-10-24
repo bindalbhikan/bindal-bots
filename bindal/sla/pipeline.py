@@ -11,6 +11,8 @@ import logging
 from collections import Counter
 from datetime import datetime, timedelta
 
+from ultron.portals.omsguru_orders import OPEN, at_risk  # noqa: F401
+
 from ..core import telegram
 from ..core.app import run_bot
 from ..core.config import num
@@ -19,15 +21,6 @@ from ..portals.omsguru import OmsGuruClient
 from ..sale.oms_sales import order_lines
 
 log = logging.getLogger("bindal.sla")
-
-OPEN = {"new", "pending", "processing", "packed"}      # not ready to ship yet
-
-
-def at_risk(lines: list[dict], now: datetime) -> list[dict]:
-    """Open lines whose SLA is today or earlier, overdue first, then by SLA."""
-    end = datetime.combine(now.date(), datetime.max.time())
-    out = [r for r in lines if r["status"].strip().lower() in OPEN and r["sla"] and r["sla"] <= end]
-    return sorted(out, key=lambda r: (r["sla"] >= now, r["sla"], r["channel"]))
 
 
 def message(risk: list[dict], names: dict[str, str], now: datetime) -> list:

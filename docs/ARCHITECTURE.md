@@ -56,12 +56,16 @@ bindal/
     telegram.py, dashboard.py, snapshot.py (sheet pictures), files.py, gauth.py
   portals/                  one client per outside system (docs/PORTALS.md)
     myntra.py  flipkart.py  ajio.py  srm.py  erp.py  omsguru.py  omsguru_returns.py
+                              (omsguru.py re-exports ultron.portals.omsguru)
   awb_tracker/              courier tracking (BlueDart, Delhivery, Ekart, Shadowfax, Valmo, XpressBees)
   sale/  vms/  ajio_tat/  ajio_spf/  return_analysis/  myntra_spf/  ajio_ads/
                             one package per working: pipeline.py (run + main) and its own logic;
                             a working that came from a hand-run tool keeps that tool unchanged
                             as engine.py and only feeds it inputs (return_analysis, myntra_spf,
                             ajio_ads, ajio_spf's master_engine.py)
+ultron/                   Ultron, the same for every seller (ultron/README.md): watch,
+                            chat, built-in tools, shared portal clients (OMSGuru), worker routes
+agent.toml                  this seller's agent setup: company, channel names, actions, tools
 scripts/                    manual tools, one folder per job, each with a README (scripts/README.md):
   myntra/                     myntra_session.py: save a Myntra login (when a session expires)
   github/                     ci_run.sh (every workflow), run_output.py (read a run's encrypted log)
@@ -108,7 +112,7 @@ docs/                       this file, PORTALS.md, bots/<bot>.md
    (an undeployed change does not run).
 6. Dashboard: a section in `dashboard/src/page.html` for its pushed numbers; deploy `dashboard/`.
 7. Tests in `tests/test_<name>.py` for the pure logic (windows, parsing, summaries).
-8. Docs: `docs/bots/<name>.md`, a row in `README.md` and `CONTEXT.md`.
+8. Docs: `docs/bots/<name>.md`, a row in `README.md` and `docs/CONTEXT.md`.
 9. Test run first: `--no-upload --no-telegram` locally or the workflow's test input, check the
    numbers against the hand-made result, then switch it on.
 

@@ -140,7 +140,7 @@ def run(args) -> int:
         log.warning("Packers not read: %s", exc)
     text = message(ch, top, fell, pk, this, last)
     try:
-        from ..agent import llm
+        from ultron.core import llm
         plain = text.replace("<pre>", "").replace("</pre>", "").replace("<b>", "").replace("</b>", "")
         plain = plain.replace("<i>", "").replace("</i>", "")
         note = (llm.chat([{"role": "system", "content": COMMENT}, {"role": "user", "content": plain}],

@@ -1,6 +1,7 @@
 """The bots' GitHub Actions runs, read-only: run lists, one run, its decrypted output.
 
-The token is GITHUB_TOKEN (in Actions) or GH_TOKEN, else the local git credential for github.com.
+The repo is [github] repo in agent.toml (else GITHUB_REPOSITORY, set in Actions). The token is
+GITHUB_TOKEN (in Actions) or GH_TOKEN, else the local git credential for github.com.
 """
 from __future__ import annotations
 
@@ -14,14 +15,20 @@ from pathlib import Path
 
 import requests
 
-from ..core.config import OUTPUT, env
-from ..core.secure import decrypt
+from ..core import config
+from ..core.config import env
+from .crypto import decrypt
 
-log = logging.getLogger("bindal.agent")
+log = logging.getLogger("ultron")
 
-REPO = "bindalbhikan/bindal-bots"
-API = f"https://api.github.com/repos/{REPO}"
 _token: str | None = None
+
+
+def api() -> str:
+    repo = config.get().repo
+    if not repo:
+        raise RuntimeError("no GitHub repo: set [github] repo in agent.toml")
+    return f"https://api.github.com/repos/{repo}"
 
 
 def token() -> str:
@@ -42,7 +49,7 @@ def get(path: str, **params) -> requests.Response:
     headers = {"Accept": "application/vnd.github+json"}
     if token():
         headers["Authorization"] = f"Bearer {token()}"
-    r = requests.get(path if path.startswith("http") else f"{API}{path}", headers=headers,
+    r = requests.get(path if path.startswith("http") else f"{api()}{path}", headers=headers,
                      params=params or None, timeout=60)
     r.raise_for_status()
     return r
@@ -79,10 +86,22 @@ def run(run_id: int) -> dict:
     return {**brief(r), "workflow_file": Path(r.get("path") or "").name}
 
 
+def dispatch(workflow_file: str, inputs: dict, ref: str = "main") -> None:
+    """Start a workflow (workflow_dispatch). Needs a token with Actions: write on the repo; the
+    GITHUB_TOKEN of an agent-chat run cannot, so this is for ultron serve with GH_TOKEN."""
+    if not token():
+        raise RuntimeError("no GitHub token (GITHUB_TOKEN / GH_TOKEN) to start a workflow")
+    r = requests.post(f"{api()}/actions/workflows/{workflow_file}/dispatches", timeout=60,
+                      headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token()}"},
+                      json={"ref": ref, "inputs": {k: str(v) for k, v in inputs.items()}})
+    if r.status_code != 204:
+        raise RuntimeError(f"GitHub said {r.status_code}: {r.text[:200]}")
+
+
 def output(run_id: int) -> Path | None:
     """The run's output/ folder (run.log + files), decrypted into output/agent/runs/<id>/;
     None when the run kept no encrypted output."""
-    dest = OUTPUT / "agent" / "runs" / str(run_id)
+    dest = config.get().output / "agent" / "runs" / str(run_id)
     if (dest / "output").is_dir():
         return dest / "output"
     arts = get(f"/actions/runs/{run_id}/artifacts").json().get("artifacts", [])

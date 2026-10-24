@@ -1,0 +1,76 @@
+# This seller's setup of Ultron (ultron/). Every key: ultron/examples/agent.example.toml.
+# No secrets here (the repo is public): logins and tokens stay in GitHub secrets / .env.
+
+[company]
+name = "Bindal Exports Ltd"
+about = """an apparel seller on Myntra (accounts MAIN, PPMP, DBCC, FMCC), AJIO, Flipkart, Amazon,
+Meesho, Nykaa, Snapdeal and COCOBLU. Orders run through OMSGuru, packing through the DigiBizz ERP."""
+owner_note = "The owner writes to you on Telegram, often in Hinglish."
+language = "plain English"
+
+[github]
+repo = "bindalbhikan/bindal-bots"
+docs = "docs/bots"
+
+[worker]
+# the env vars holding the worker's address and token (the dashboard worker serves /api/ai too)
+url_env = "DASHBOARD_URL"
+token_env = "DASHBOARD_TOKEN"
+
+[model]
+name = "@cf/openai/gpt-oss-120b"
+
+[model.prices]   # US$ per million tokens (input, output), for the cost line in the log
+"@cf/openai/gpt-oss-120b" = [0.35, 0.75]
+"@cf/qwen/qwen3.8-27b" = [0.45, 3.2]
+"@cf/nvidia/nemotron-3-120b-a12b" = [0.5, 1.5]
+"@cf/openai/gpt-oss-20b" = [0.2, 0.3]
+
+[channels]
+# OMSGuru channel names as this seller calls them
+strip_prefix = ["BINDAL EXPORTS LIMITED - "]
+
+[channels.names]
+"MYNTRA" = "Myntra MAIN"
+"Myntra PPMP" = "Myntra PPMP"
+"Myntra DressBerry CC" = "Myntra DBCC"
+"Myntra Fashfun Murcia CC" = "Myntra FMCC"
+"Ajio Api" = "Ajio"
+"Ajio" = "Ajio"
+"Nykaa Fashion" = "Nykaa"
+"Amazon" = "Amazon"
+"Amazon SmartConnect WI" = "Amazon SC"
+
+[memory]
+# kept in the dashboard worker's KV (shared by every Actions run), never in this public repo
+backend = "auto"
+
+[watch]
+skip =["agent-watch.yml", "agent-chat.yml", "tests.yml"]
+failure_only = ["inv-push.yml"]     # runs every 3 hours: looked at only when it failed
+max_steps = 6
+tools = []
+
+[chat]
+max_steps = 8
+tools = ["runs", "omsguru"]
+
+# What the agent may propose; each starts only after the owner taps Approve. The worker's
+# AGENT_ACTIONS (worker/wrangler.toml) must list the same workflows and inputs (a test checks).
+[actions]
+sale = { workflow = "sale.yml", inputs = ["from", "to", "today"], about = "Daily sale report into the SALE REPORT sheet. inputs: from, to (YYYY-MM-DD) or today=1" }
+vms = { workflow = "vms.yml", inputs = ["from", "to"], about = "Myntra VMS report. inputs: from, to (YYYY-MM-DD)" }
+ajiotat = { workflow = "ajio-tat.yml", inputs = ["days", "orders"], about = "AJIO TAT master update. inputs: days (OMSGuru window), orders (FN/EX/seller order numbers to add, comma separated)" }
+ajiospf = { workflow = "ajio-spf.yml", inputs = ["dry_run"], about = "AJIO SPF run (raises claims on AJIO). inputs: dry_run=1 for a test run" }
+myntraspf = { workflow = "myntra-spf.yml", inputs = [], about = "Myntra SPF master. no inputs" }
+invpush = { workflow = "inv-push.yml", inputs = ["dry_run"], about = "OMSGuru Push Inventory on every channel. inputs: dry_run=1 to only list channels" }
+morning = { workflow = "morning.yml", inputs = ["day"], about = "Morning sale report. inputs: day (YYYY-MM-DD)" }
+sla = { workflow = "sla.yml", inputs = [], about = "SLA warning now. no inputs" }
+labels = { workflow = "labels.yml", inputs = [], about = "ERP label check now. no inputs" }
+stock = { workflow = "stock.yml", inputs = [], about = "Stock-out alert now. no inputs" }
+evening = { workflow = "evening.yml", inputs = [], about = "Evening summary now. no inputs" }
+weekly = { workflow = "weekly.yml", inputs = [], about = "Weekly review now. no inputs" }
+deadstock = { workflow = "deadstock.yml", inputs = [], about = "Dead and slow stock report now. no inputs" }
+listings = { workflow = "listings.yml", inputs = [], about = "Listing health check now. no inputs" }
+mis = { workflow = "mis.yml", inputs = ["day"], about = "Monthly MIS and plan now (last month). inputs: day (YYYY-MM-DD)" }
+myntratat = { workflow = "myntra-tat.yml", inputs = [], about = "Myntra courier pickup scorecard now. no inputs" }

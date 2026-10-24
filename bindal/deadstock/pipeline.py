@@ -94,7 +94,7 @@ def run(args) -> int:
     out += ["", section(f"Slow ({num('DEAD_SLOW_DAYS', 180):.0f}+ days of stock)", slow, slow=True) if slow
             else "No slow stock."]
     try:
-        from ..agent import llm
+        from ultron.core import llm
         plain = telegram.render(out).replace("<b>", "").replace("</b>", "").replace("<i>", "").replace("</i>", "")
         note = (llm.chat([{"role": "system", "content": COMMENT}, {"role": "user", "content": plain[:12000]}],
                          max_tokens=1500)["choices"][0]["message"].get("content") or "").strip()

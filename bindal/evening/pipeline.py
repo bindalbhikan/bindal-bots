@@ -9,7 +9,8 @@ import logging
 from collections import Counter
 from datetime import date, datetime, timedelta
 
-from ..agent import github
+from ultron.integrations import github
+
 from ..core import telegram
 from ..core.app import run_bot
 from ..core.config import num
@@ -103,7 +104,7 @@ def run(args) -> int:
            "<b>Bots today</b>", *(bot_lines or ["no runs found"]),
            *([f'<a href="{u}">failed run</a>' for u in failed_links[:5]])]
     try:
-        from ..agent import llm
+        from ultron.core import llm
         facts = (f"Sale so far today vs last week same time:\n{table}\nCancelled today {cancel}\n"
                  f"Due today not ready to ship {len(risk)}, SLA passed {over}\n"
                  f"Bots: {len(bots)} bots, {sum(k for _, k, _, _ in bots)} runs in all, "

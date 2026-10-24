@@ -1,7 +1,7 @@
 name: Agent watch
 
 on:
-  # The agent (Cloudflare Workers AI, free allocation) checks every bot run as it finishes (bindal/agent/watch.py) and tells Telegram only
+  # The agent (Cloudflare Workers AI, free allocation) checks every bot run as it finishes (ultron.agents.watch) and tells Telegram only
   # when something is wrong. The inventory push (every 3 hours) is checked only when it failed.
   workflow_run:
     workflows: ["AJIO ads TOT gap", "AJIO SPF run", "AJIO TAT daily update", "OMSGuru inventory push",

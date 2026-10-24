@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ultron"
+dynamic = ["version"]
+description = "Ultron, Ecom Manager: an AI e-commerce manager for marketplace sellers, on Telegram"
+readme = "README.md"
+requires-python = ">=3.12"
+# pure-Python only, so it installs anywhere, Android (Termux) included
+dependencies = [
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+# xlsx summaries of run files (pandas, openpyxl) and reading encrypted GitHub run artifacts
+# (cryptography); on Termux these come from pkg instead (deploy/termux/setup.sh)
+full = ["pandas>=2.2", "openpyxl>=3.1", "cryptography>=42"]
+test = ["pytest>=8.0", "pandas>=2.2", "openpyxl>=3.1"]
+
+[project.scripts]
+ultron = "ultron.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "ultron.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

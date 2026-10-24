@@ -130,7 +130,7 @@ def run(args) -> int:
     rows = mis(lines, names, now_days, prev_days, rates)
     text = message(rows, now_days, prev_days, rates)
     try:
-        from ..agent import llm
+        from ultron.core import llm
         plain = text.replace("<pre>", "").replace("</pre>", "").replace("<b>", "").replace("</b>", "")
         plain = plain.replace("<i>", "").replace("</i>", "")
         note = (llm.chat([{"role": "system", "content": PLAN}, {"role": "user", "content": plain}],

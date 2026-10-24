@@ -1,0 +1,69 @@
+# agent.toml: one seller's setup of Ultron. Copy it to the root of the seller's bots repo
+# as agent.toml and fill it in. Never put a password, token or key in this file: those go in
+# GitHub secrets (and a local .env for runs on a PC).
+
+[company]
+name = "Example Fashions Pvt Ltd"                       # required
+# who the seller is, read by the model as "<name>, <about>"
+about = """a women's apparel seller on Myntra, AJIO and Flipkart. Orders run through OMSGuru."""
+owner_note = "The owner writes to you on Telegram."     # e.g. "often in Hinglish"
+language = "plain English"                              # the language the agent answers in
+
+[github]
+repo = "example-owner/example-bots"                     # empty: GITHUB_REPOSITORY (set in Actions)
+docs = "docs/bots"                                      # <workflow>.md per bot: background for the watcher
+ref = "main"                                            # the branch a workflow action is started on
+
+[worker]
+# the env vars that hold the seller's worker address and the token it checks
+url_env = "AGENT_WORKER_URL"
+token_env = "AGENT_WORKER_TOKEN"
+
+[model]
+# a Workers AI model the worker allows (ultron/worker/agent.js FREE_MODELS);
+# the AGENT_MODEL env var / repo variable overrides it
+name = "@cf/openai/gpt-oss-120b"
+
+[model.prices]   # US$ per million tokens (input, output): only for the cost line in the log
+"@cf/openai/gpt-oss-120b" = [0.35, 0.75]
+
+[channels]
+# OMSGuru channel names as the seller calls them: the prefix taken off, then renamed
+strip_prefix = ["EXAMPLE FASHIONS PVT LTD - "]
+
+[channels.names]
+"MYNTRA" = "Myntra"
+"Ajio Api" = "Ajio"
+
+[memory]
+# What the agent keeps between messages and runs: the owner's preferences, facts, known issues,
+# decisions, incidents, and each chat's last messages. Never in git; passwords, OTPs, tokens and
+# customers' phones / emails are refused.
+backend = "auto"        # auto: the worker's KV when [worker] is set up, else output/agent/memory.json | worker | file | off
+history_turns = 10      # earlier messages of the same chat the agent sees
+history_days = 3        # ... no older than this
+max_notes = 400         # long-term notes kept; incidents go first when it is full
+recall = 8              # notes matching a message that go in front of the model
+
+[watch]
+skip =["agent-watch.yml", "agent-chat.yml", "tests.yml"]   # runs never checked
+failure_only = []                # frequent runs checked only when they fail, e.g. ["inv-push.yml"]
+max_steps = 6
+tools = []                       # extra tools for the watcher (built-in "runs" is always on)
+
+[chat]
+max_steps = 8
+# built-in sets: "runs" (bot runs, logs, files), "omsguru" (orders, sale, SLA; needs the
+# OMSGURU_EMAIL / OMSGURU_PASSWORD / OMSGURU_OTP secrets); or a module of the seller's own
+# ("mytools.agent", exporting TOOLS)
+tools = ["runs", "omsguru"]
+
+# What the agent may propose. Each starts only after the owner taps Approve, and only with the
+# inputs listed. An action is a GitHub workflow (`workflow`), or, when the agent runs on the
+# seller's own machine (ultron serve), a command run there (`command`, each input added as
+# --<input> <value>; "python" means the agent's own Python). With the Cloudflare worker, the
+# worker's [vars.AGENT_ACTIONS] (wrangler.toml) repeats each workflow + inputs.
+[actions]
+sale = { workflow = "sale.yml", inputs = ["from", "to"], about = "Daily sale report. inputs: from, to (YYYY-MM-DD)" }
+invpush = { workflow = "inv-push.yml", inputs = ["dry_run"], about = "OMSGuru Push Inventory on every channel. inputs: dry_run=1 to only list channels" }
+# stock = { command = ["python", "run.py", "stock"], inputs = [], about = "Stock-out alert now, run on this machine. no inputs" }

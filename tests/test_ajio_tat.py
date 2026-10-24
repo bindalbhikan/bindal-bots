@@ -61,7 +61,7 @@ def test_build_report_output_has_the_erp_columns_empty():
 
 
 def test_courier_scorecard_complete_days_and_streak(monkeypatch):
-    from bindal.agent import llm
+    from ultron.core import llm
     from bindal.ajio_tat import pipeline as p
     monkeypatch.setattr(llm, "chat", lambda *a, **k: (_ for _ in ()).throw(llm.LLMError("offline")))
     now = pd.Timestamp("2026-10-20 17:30")

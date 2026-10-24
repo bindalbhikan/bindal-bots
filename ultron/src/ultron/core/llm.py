@@ -1,6 +1,8 @@
-"""The agent's model: Cloudflare Workers AI on the account's free daily allocation, through the
-Telegram worker's /api/ai route (DASHBOARD_URL + DASHBOARD_TOKEN, the secrets the bots already
-have). Chat-completions shape: messages, tools, tool_calls.
+"""The agent's model: any chat-completions endpoint (messages, tools, tool_calls).
+
+By default the seller's Cloudflare worker (ultron/worker): POST <worker>/api/ai with the worker
+token, served by Workers AI on the account's free daily allocation. AGENT_LLM_URL + AGENT_LLM_KEY
+point it at any other OpenAI-compatible endpoint instead (full URL of /chat/completions).
 
 `tool` turns a typed function with an "Args:" docstring into a tool; `agent_loop` runs the
 model and the tools until it answers.
@@ -15,14 +17,11 @@ from typing import Callable, get_type_hints
 
 import requests
 
-from ..core.config import env
+from . import config
+from .config import env
 
-log = logging.getLogger("bindal.agent")
+log = logging.getLogger("ultron")
 
-MODEL = "@cf/openai/gpt-oss-120b"
-# US$ per million tokens (input, output); the free allocation is 10,000 neurons a day, about $0.11
-PRICES = {"@cf/openai/gpt-oss-120b": (0.35, 0.75), "@cf/qwen/qwen3.8-27b": (0.45, 3.2),
-          "@cf/nvidia/nemotron-3-120b-a12b": (0.5, 1.5), "@cf/openai/gpt-oss-20b": (0.2, 0.3)}
 JSON_TYPES = {int: "integer", str: "string", float: "number", bool: "boolean"}
 
 
@@ -47,23 +46,31 @@ def tool(fn: Callable) -> Callable:
     return fn
 
 
-def chat(messages: list[dict], tools: list[Callable] = (), model: str = MODEL, max_tokens: int = 4000) -> dict:
-    url, token = env("DASHBOARD_URL").rstrip("/"), env("DASHBOARD_TOKEN")
+def endpoint() -> tuple[str, str]:
+    if env("AGENT_LLM_URL"):
+        return env("AGENT_LLM_URL"), env("AGENT_LLM_KEY")
+    url, token = config.get().worker()
+    return (f"{url}/api/ai" if url else ""), token
+
+
+def chat(messages: list[dict], tools: list[Callable] = (), model: str = "", max_tokens: int = 4000) -> dict:
+    url, token = endpoint()
     if not url or not token:
-        raise LLMError("DASHBOARD_URL / DASHBOARD_TOKEN not set")
-    body = {"model": model, "messages": messages, "max_tokens": max_tokens}
+        cfg = config.get()
+        raise LLMError(f"model endpoint not set ({cfg.worker_url_env} / {cfg.worker_token_env}, or AGENT_LLM_URL)")
+    body = {"model": model or config.get().model_name(), "messages": messages, "max_tokens": max_tokens}
     if tools:
         body["tools"] = [t.schema for t in tools]
     try:
-        r = requests.post(f"{url}/api/ai", json=body, headers={"Authorization": f"Bearer {token}"}, timeout=180)
+        r = requests.post(url, json=body, headers={"Authorization": f"Bearer {token}"}, timeout=180)
     except requests.RequestException as exc:
-        raise LLMError(f"Workers AI not reached: {exc}") from exc
+        raise LLMError(f"model not reached: {exc}") from exc
     try:
         data = r.json()
     except ValueError:
-        raise LLMError(f"Workers AI: HTTP {r.status_code} {r.text[:200]}") from None
+        raise LLMError(f"model: HTTP {r.status_code} {r.text[:200]}") from None
     if r.status_code != 200 or "error" in data or not data.get("choices"):
-        raise LLMError(f"Workers AI: {str(data.get('error') or data)[:300]}")
+        raise LLMError(f"model: {str(data.get('error') or data)[:300]}")
     return data
 
 
@@ -82,10 +89,12 @@ def _run_tool(fns: dict[str, Callable], call: dict) -> str:
 
 
 def agent_loop(system: str, task: str, tools: list[Callable], max_steps: int = 8,
-               model: str = MODEL) -> tuple[str, dict]:
-    """(final answer text, usage) after letting the model call the tools up to max_steps times."""
+               model: str = "", history: list[dict] = ()) -> tuple[str, dict]:
+    """(final answer text, usage) after letting the model call the tools up to max_steps times.
+    `history`: earlier user / assistant messages of the conversation, oldest first."""
+    model = model or config.get().model_name()
     fns = {t.__name__: t for t in tools}
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": task}]
+    messages = [{"role": "system", "content": system}, *history, {"role": "user", "content": task}]
     usage = {"input": 0, "output": 0, "steps": 0, "model": model}
     for step in range(max_steps + 1):
         last = step == max_steps
@@ -108,6 +117,7 @@ def agent_loop(system: str, task: str, tools: list[Callable], max_steps: int = 8
 
 
 def cost(usage: dict) -> float:
-    """What the call would cost in US$ beyond the free allocation (it is within it at our volumes)."""
-    pin, pout = PRICES.get(usage.get("model"), (0.35, 0.75))
+    """What the call costs in US$ at the model's list price ([model.prices] in agent.toml);
+    on the Workers AI free allocation it is within the day's free amount."""
+    pin, pout = config.get().prices.get(usage.get("model"), (0.35, 0.75))
     return round((usage["input"] * pin + usage["output"] * pout) / 1e6, 4)

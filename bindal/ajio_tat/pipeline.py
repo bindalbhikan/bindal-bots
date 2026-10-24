@@ -617,7 +617,7 @@ def courier_scorecard(df: pd.DataFrame, now: pd.Timestamp | None = None) -> str:
              "<i>Late = picked after the deadline or still waiting past it; OnT% = on time / (on time + late); "
              "picked with no time known is left out</i>"]
     try:
-        from ..agent import llm
+        from ultron.core import llm
         plain = "\n".join(table) + f"\nNOT CORRECT on {yday:%d %b}: {len(bad)}, ours {ours}, courier {len(bad) - ours}\n" + "\n".join(alerts)
         note = (llm.chat([{"role": "system", "content": SCORE_COMMENT}, {"role": "user", "content": plain}],
                          max_tokens=1200)["choices"][0]["message"].get("content") or "").strip()

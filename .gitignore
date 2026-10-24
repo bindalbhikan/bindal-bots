@@ -16,6 +16,8 @@ sjit/
 __pycache__/
 *.pyc
 .pytest_cache/
+*.egg-info/
+ultron/build/
 .venv/
 venv/
 worker/.wrangler/

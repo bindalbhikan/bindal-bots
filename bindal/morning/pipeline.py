@@ -10,6 +10,8 @@ import argparse
 import logging
 from datetime import date, timedelta
 
+from ultron.core.config import channel_line  # noqa: F401 - other bots import it from here
+
 from ..core import telegram
 from ..core.app import run_bot
 from ..core.config import num
@@ -19,10 +21,6 @@ from ..sale.pipeline import fbf_source, sjit_source
 
 log = logging.getLogger("bindal.morning")
 
-# OMSGuru channel name (after "BINDAL EXPORTS LIMITED - ") -> line name; others keep their own
-SHORT = {"MYNTRA": "Myntra MAIN", "Myntra PPMP": "Myntra PPMP", "Myntra DressBerry CC": "Myntra DBCC",
-         "Myntra Fashfun Murcia CC": "Myntra FMCC", "Ajio Api": "Ajio", "Ajio": "Ajio",
-         "Nykaa Fashion": "Nykaa", "Amazon": "Amazon", "Amazon SmartConnect WI": "Amazon SC"}
 ORDER = ["Myntra MAIN", "Myntra PPMP", "Myntra DBCC", "Myntra FMCC", "SJIT", "Ajio", "Flipkart", "FBF",
          "Amazon", "Amazon SC", "COCOBLU", "Meesho", "Nykaa"]
 
@@ -32,11 +30,6 @@ weekday one week before, with cancelled units. Write 2 or 3 short lines for the 
 English: the biggest change and on which channel, anything worrying (a channel at
 or near zero, cancels high), and one thing to check today. Numbers exact, no markdown, no greeting.
 Say only what the numbers show; do not guess causes you cannot see."""
-
-
-def channel_line(name: str) -> str:
-    name = name.replace("BINDAL EXPORTS LIMITED - ", "").strip()
-    return SHORT.get(name, name)
 
 
 def oms_counts(days: list[date]) -> tuple[dict, dict]:
@@ -94,7 +87,7 @@ def drops(gross: dict, day: date, before: date) -> list[str]:
 
 
 def comment(text_table: str) -> str:
-    from ..agent import llm
+    from ultron.core import llm
     try:
         data = llm.chat([{"role": "system", "content": COMMENT}, {"role": "user", "content": text_table}],
                         max_tokens=1500)
