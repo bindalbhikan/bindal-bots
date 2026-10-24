@@ -7,7 +7,7 @@ C45111W17453 names channel 45111): TLPL = MAIN 46148, MMRJ = DBCC 50829, BOAT = 
 
 The codes go to Telegram and into the team's "Daily OTP 2026" Google Sheet (MYNTRA_OTP_SHEET_ID),
 one row per code in its own layout: DATE, PORTAL, COUNT (left empty, filled in by hand), OTP,
-STATUS (PICKUP / RETURN), Name (BOT) and the courier as the team writes it (MYE = EK, MYS = FL).
+STATUS (PICKUP / RETURN), Name (MYNTRA_OTP_NAME, Bhikan) and the courier as the team writes it (MYE = EK, MYS = FL).
 A code the sheet already has for that date, portal and status is not added again. Nothing is logged.
 """
 from __future__ import annotations
@@ -89,7 +89,8 @@ def sheet_rows(rows, now: datetime, existing: list[list[str]]) -> list[list[str]
         for courier, otc in codes.items():
             if otc in (None, "", "-"):
                 continue
-            row = [day, PORTAL_NAMES.get(code, f"Myntra_{code}"), "", str(otc), label.upper(), "BOT",
+            row = [day, PORTAL_NAMES.get(code, f"Myntra_{code}"), "", str(otc), label.upper(),
+                   env("MYNTRA_OTP_NAME") or "Bhikan",
                    COURIER_TAGS.get(courier, courier)]
             if (row[0], row[1], row[3], row[4]) not in have:
                 have.add((row[0], row[1], row[3], row[4]))
