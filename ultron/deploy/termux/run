@@ -1,5 +1,0 @@
-#!/data/data/com.termux/files/usr/bin/sh
-# termux-services (runit) runs this and restarts it when it stops
-cd "@DIR@" || exit 1
-export PYTHONUNBUFFERED=1
-exec ultron serve @ARGS@ 2>&1

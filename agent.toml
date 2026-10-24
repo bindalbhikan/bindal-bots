@@ -1,4 +1,4 @@
-# This seller's setup of Ultron (ultron/). Every key: ultron/examples/agent.example.toml.
+# This seller's setup of Ultron (github.com/bindalbhikan/Ultron). Every key: examples/agent.example.toml there.
 # No secrets here (the repo is public): logins and tokens stay in GitHub secrets / .env.
 
 [company]

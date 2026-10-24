@@ -22,6 +22,7 @@ ultron/build/
 venv/
 worker/.wrangler/
 worker/node_modules/
+worker/src/ultron-agent.js
 scripts/**/*.txt
 # network captures (netcap exports) of the portals
 netcap/

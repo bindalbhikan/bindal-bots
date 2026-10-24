@@ -30,5 +30,7 @@ Dates are `YYYY-MM-DD`. Only chats in `ALLOWED_CHAT_IDS` (secret) + `EXTRA_CHAT_
 2. In PowerShell, from this folder: `powershell -ExecutionPolicy Bypass -File .\setup.ps1`
    and paste the token when asked. Bot token and chat id are read from `..\.env`.
 
-After a code change: `npx wrangler deploy`. While the webhook is set, `getUpdates` does not
+After a code change: `npm run deploy`. It first fetches Ultron's routes (`worker/agent.js` of the
+Ultron repo, at the release pinned in `update-ultron.mjs`) into `src/ultron-agent.js`, then runs
+`npx wrangler deploy`. While the webhook is set, `getUpdates` does not
 work for this bot (Telegram allows one or the other).

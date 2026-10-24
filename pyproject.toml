@@ -5,5 +5,5 @@ description = "BINDAL EXPORTS report bots: daily sale, Myntra VMS, AJIO TAT, AJI
 requires-python = ">=3.12"
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "ultron/tests"]
-pythonpath = [".", "ultron/src"]
+testpaths = ["tests"]
+pythonpath = ["."]

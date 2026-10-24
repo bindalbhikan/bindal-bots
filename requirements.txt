@@ -1,6 +1,6 @@
 # Every bot in one environment (Python 3.12)
-# Ultron (ultron/, its own package), installed from this repo
--e ./ultron[full]
+# Ultron, the ops agent (its own repo: github.com/bindalbhikan/Ultron), at a pinned release
+ultron[full] @ git+https://github.com/bindalbhikan/Ultron.git@v0.1.0
 pandas>=2.2
 openpyxl>=3.1
 requests>=2.31

@@ -8,7 +8,7 @@
 // Every reply is written for a phone: a bold heading line, a blank line, short lines below,
 // and at most two short buttons per row.
 
-import { makeAgent } from "../../ultron/worker/agent.js";
+import { makeAgent } from "./ultron-agent.js";   // Ultron's routes at a pinned release (update-ultron.mjs)
 
 // All bots live in one repo; each command starts one of its workflows.
 const OWNER = "bindalbhikan";
@@ -411,7 +411,7 @@ async function saveMyntraSession(request, env) {
 }
 
 // ------------------------------------------------------------------ Ultron
-// The agent's routes are ultron/worker/agent.js, the same for every seller. Plain text in an
+// The agent's routes are worker/agent.js of the Ultron repo, the same for every seller. Plain text in an
 // allowed chat goes to the agent-chat workflow (ultron.agents.chat), which answers in the same chat.
 // The agent can only read; anything it wants done it proposes with POST /api/approval, and only an
 // Approve tap starts it - one of AGENT_ACTIONS (wrangler.toml, the same list as agent.toml), with

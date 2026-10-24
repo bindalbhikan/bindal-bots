@@ -63,8 +63,10 @@ bindal/
                             a working that came from a hand-run tool keeps that tool unchanged
                             as engine.py and only feeds it inputs (return_analysis, myntra_spf,
                             ajio_ads, ajio_spf's master_engine.py)
-ultron/                   Ultron, the same for every seller (ultron/README.md): watch,
-                            chat, built-in tools, shared portal clients (OMSGuru), worker routes
+(Ultron)                    the ops agent, the same for every seller: its own repo
+                            github.com/bindalbhikan/Ultron (local: AGENT\AGENT-ULTRON-BINDAL),
+                            installed at a pinned release from requirements.txt (Python) and
+                            worker/package.json (its worker routes)
 agent.toml                  this seller's agent setup: company, channel names, actions, tools
 scripts/                    manual tools, one folder per job, each with a README (scripts/README.md):
   myntra/                     myntra_session.py: save a Myntra login (when a session expires)

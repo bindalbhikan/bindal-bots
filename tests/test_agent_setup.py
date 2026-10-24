@@ -1,5 +1,5 @@
-"""This seller's setup of Ultron (agent.toml, the worker) and the rule that ultron/ itself
-names no seller. The agent's own tests are in ultron/tests."""
+"""This seller's setup of Ultron (agent.toml, the worker) and the rule that Ultron itself
+names no seller. Ultron's own tests are in its repo (github.com/bindalbhikan/Ultron)."""
 import tomllib
 from pathlib import Path
 
@@ -31,8 +31,10 @@ def test_action_workflows_exist():
 
 
 def test_ultron_names_no_seller():
+    """The installed Ultron package (github.com/bindalbhikan/Ultron) never names this seller."""
+    import ultron
+    package = Path(ultron.__file__).resolve().parent
     seller = setup().company.split()[0].lower()
-    hits = [str(p.relative_to(ROOT)) for p in (ROOT / "ultron").rglob("*")
-            if p.is_file() and p.suffix in {".py", ".js", ".md", ".toml", ".yml", ".sh", ".txt"}
-            and seller in p.read_text(encoding="utf-8").lower()]
+    hits = [str(p.relative_to(package)) for p in package.rglob("*.py")
+            if seller in p.read_text(encoding="utf-8").lower()]
     assert not hits, f"{seller!r} named in {hits}"

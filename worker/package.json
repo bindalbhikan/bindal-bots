@@ -1,0 +1,10 @@
+{
+  "name": "bindal-telegram-bot",
+  "private": true,
+  "type": "module",
+  "description": "The Telegram worker; Ultron's routes are fetched from the Ultron repo at a pinned release",
+  "scripts": {
+    "ultron": "node update-ultron.mjs",
+    "deploy": "node update-ultron.mjs && npx --yes wrangler deploy"
+  }
+}
