@@ -17,7 +17,7 @@ import argparse
 import io
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -140,46 +140,79 @@ def fetch_account(account: str, day: date, dest: Path, wait_minutes: int) -> tup
     return got, split, notes
 
 
-def update_workbook(root, day: date, splits: dict[str, dict], work: Path) -> str:
-    """The day's rows (one per account) into AGENT WORK/MYNTRA DAILY RETURN DELIVERY REPORT.xlsx,
-    replacing rows of the same date and portal. Returns the workbook's link."""
+def update_workbook(root, rows: list[tuple[date, str, dict]], work: Path) -> str:
+    """rows (day, account, split) into AGENT WORK/MYNTRA DAILY RETURN DELIVERY REPORT.xlsx (DATA sheet;
+    rows of the same day and portal replaced, DASHBOARD built when missing). Returns its link."""
     import openpyxl
     from ..core.drive import DriveFile
+    from . import workbook
     found = root.children().get(WORKBOOK)
     if not found:
         raise RuntimeError(f"{WORKBOOK} not found in AGENT WORK on Drive")
     drive = DriveFile(found["id"], root.http)
     path = drive.download(work / WORKBOOK, need_edit=True)
     wb = openpyxl.load_workbook(path)
-    ws = wb.worksheets[0]
-    head = [str(c.value or "").strip().upper() for c in ws[1]]
-    col = {h: i for i, h in enumerate(head)}
-    portals = {PORTALS.get(a, a) for a in splits}
-
-    def cell_date(v):
-        return v.date() if isinstance(v, datetime) else v
-    for r in range(ws.max_row, 1, -1):
-        v = [c.value for c in ws[r]]
-        if cell_date(v[col["DATE"]]) == day and str(v[col["PORTAL"]] or "").strip() in portals:
-            ws.delete_rows(r)
-    # the first empty row (a sheet with formatting below the data reports a larger max_row)
-    row = ws.max_row + 1
-    while row > 2 and all(c.value in (None, "") for c in ws[row - 1]):
-        row -= 1
-    for a, split in splits.items():
-        values = {"DATE": day, "PORTAL": PORTALS.get(a, a), **split}
-        for h, i in col.items():
-            if h in values:
-                ws.cell(row, i + 1, values[h])
-        ws.cell(row, col["DATE"] + 1).number_format = "DD-MM-YYYY"
-        row += 1
+    workbook.update(wb, [(d, PORTALS.get(a, a), s) for d, a, s in rows], [PORTALS.get(a, a) for a in ACCOUNTS])
     wb.save(path)
     drive.upload(path)
     return drive.url
 
 
+def backfill(args) -> int:
+    """The workbook's rows for --backfill-from .. the day before yesterday, from report jobs already on
+    the portal (the 7 AM SPF run keeps a 30-day Return_Delivery_Report and 60 days of orders):
+    each delivery counted on its deliver_to_seller_date. A missing range is asked for (one job per
+    report, waited for)."""
+    import tempfile
+    from ..core.drive import DriveFolder
+    from ..portals import myntra as mp
+    from ..return_analysis.sources import myntra_portal
+    start = date.fromisoformat(args.backfill_from)
+    end = date.today() - timedelta(days=2)
+    rows = []
+    for account in csv_list("MYNTRA_REPORT_ACCOUNTS") or ACCOUNTS:
+        portal = myntra_portal(account)
+        jobs = portal.jobs(200)
+
+        def frames(rid: int, first: date, last: date) -> list[pd.DataFrame]:
+            """Completed jobs of the report that together cover first..last (newest first), else one new job."""
+            out, need = [], set(mp._days(first, last))
+            for j in sorted(jobs, key=lambda j: j.get("createdOn") or 0, reverse=True):
+                rng = mp.job_range(j, rid)
+                if not rng or not need & mp._days(*rng) or str(j.get("status")).upper() != "COMPLETED":
+                    continue
+                try:
+                    out.append(pd.read_csv(io.BytesIO(portal.download(j)[1]), low_memory=False))
+                    need -= mp._days(*rng)
+                except Exception as exc:  # noqa: BLE001 - asked for again below
+                    log.warning("%s job %s not downloaded: %s", account, j.get("id"), exc)
+                if not need:
+                    return out
+            if need:
+                job = portal.schedule(min(need), max(need), rid)
+                out.append(pd.read_csv(io.BytesIO(portal.collect(job, 40)[1]), low_memory=False))
+            return out
+        delivery = pd.concat(frames(84, start, end), ignore_index=True)
+        orders = pd.concat(frames(mp.REPORT_ID, start - timedelta(days=60), end), ignore_index=True)
+        mp.save_to_worker(env, portal.cookies(), account)
+        when = pd.to_datetime(_col(delivery, "deliver_to_seller_date"), errors="coerce")
+        when = when.fillna(pd.to_datetime(_col(delivery, "gatepass_lastmodified"), errors="coerce")).dt.date
+        delivery = delivery.assign(_day=when).drop_duplicates(subset=[c for c in delivery.columns if c != "_day"])
+        for day in sorted(mp._days(start, end)):
+            rows.append((day, account, delivery_split(delivery[delivery["_day"] == day], orders)))
+        log.info("%s: %d days, %d deliveries", account, len(mp._days(start, end)),
+                 int((delivery["_day"].between(start, end)).sum()))
+    root = DriveFolder(env("AGENT_WORK_FOLDER_ID", AGENT_WORK))
+    link = update_workbook(root, rows, Path(tempfile.mkdtemp(prefix="myntra_rd_")))
+    total = sum(s["TOTAL"] for _, _, s in rows)
+    print(f"{WORKBOOK}: {len(rows)} rows for {start}..{end}, {total} return deliveries. {link}")
+    return 0
+
+
 def run(args) -> int:
     import tempfile
+    if args.backfill_from:
+        return backfill(args)
     day = date.fromisoformat(args.date) if args.date else date.today() - timedelta(days=1)
     accounts = csv_list("MYNTRA_REPORT_ACCOUNTS") or ACCOUNTS
     dest = output_dir("myntra-reports") / f"{day}"
@@ -220,7 +253,8 @@ def run(args) -> int:
         link = f"https://drive.google.com/drive/folders/{folder.folder_id}"
         if splits:
             try:
-                book = update_workbook(root, day, splits, Path(tempfile.mkdtemp(prefix="myntra_rd_")))
+                book = update_workbook(root, [(day, a, sp) for a, sp in splits.items()],
+                                       Path(tempfile.mkdtemp(prefix="myntra_rd_")))
             except Exception as exc:  # noqa: BLE001 - the message still goes out
                 log.exception("%s not updated", WORKBOOK)
                 notes.append(f"{WORKBOOK} not updated: {str(exc)[:150]}")
@@ -254,6 +288,8 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="run.py myntra-reports",
                                 description="Myntra orders / returns / return delivery / listings reports, daily")
     p.add_argument("--date", help="report day YYYY-MM-DD (default yesterday)")
+    p.add_argument("--backfill-from", help="YYYY-MM-DD: only fill the return delivery workbook from that day"
+                   " to the day before yesterday")
     p.add_argument("--no-upload", action="store_true", help="keep the files in output/, not on Drive")
     p.add_argument("--no-telegram", action="store_true", help="print the summary instead of sending it")
     return run_bot("Myntra daily reports", p, run, argv)
