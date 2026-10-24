@@ -45,3 +45,17 @@ def test_sheet_rows_in_the_team_layout_without_repeats():
     assert new == [["24-10-2026", "Myntra_Main_TLPL", "", "012345", "RETURN", "Bhikan", "FL"],
                    ["24-10-2026", "Myntra_FF X MUR CC_BOAT", "", "111111", "PICKUP", "Bhikan", "FL"]]
     assert p.sheet_rows(rows, datetime(2026, 10, 24), existing + new) == []
+
+
+def test_retry_sends_only_new_codes(monkeypatch):
+    from types import SimpleNamespace
+    from bindal.myntra_otp import pipeline as p
+    sent = []
+    monkeypatch.setattr(p, "read_codes", lambda: ([("TLPL", "Pickup", {"MYE": "1234"})], ["MYE"], []))
+    monkeypatch.setattr(p.telegram, "send", lambda text: sent.append(text))
+    args = SimpleNamespace(retry=True, no_sheet=False, no_telegram=False)
+    monkeypatch.setattr(p, "write_sheet", lambda rows, now: (0, True))     # 10 AM already had it
+    assert p.run(args) == 0 and sent == []
+    monkeypatch.setattr(p, "write_sheet", lambda rows, now: (1, True))     # a code came after 10 AM
+    p.run(args)
+    assert len(sent) == 1 and "11 AM update" in sent[0] and "1234" in sent[0]
