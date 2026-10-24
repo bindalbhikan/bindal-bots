@@ -283,11 +283,13 @@ class MyntraPortal:
         return self._call("GET", "/report/jobs/search",
                           params={"fetchSize": size, "sortBy": "id", "sortOrder": "desc", "start": 0}).get("data") or []
 
-    def schedule(self, start: date, end: date, report_id: int = REPORT_ID, cooldown_wait: int = COOLDOWN_MINUTES) -> dict:
+    def schedule(self, start: date | None, end: date | None, report_id: int = REPORT_ID,
+                 cooldown_wait: int = COOLDOWN_MINUTES) -> dict:
         """Request a report job. The portal refuses the same report again for 15 minutes after
-        a request (coolDownPeriod); such a refusal is waited out once, up to cooldown_wait minutes."""
-        body = {"reportId": report_id, "queryParams": {**QUERY, "reportStartDate": f"{start}",
-                                                       "reportEndDate": f"{end}"}}
+        a request (coolDownPeriod); such a refusal is waited out once, up to cooldown_wait minutes.
+        start / end None: a snapshot report (Seller_Listings_Report, ...), asked for without dates."""
+        dates = {"reportStartDate": f"{start}", "reportEndDate": f"{end}"} if start else {}
+        body = {"reportId": report_id, "queryParams": {**QUERY, **dates}}
         try:
             data = self._call("POST", "/report/jobs/schedule", json=body).get("data") or []
         except RuntimeError as exc:

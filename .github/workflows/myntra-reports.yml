@@ -1,0 +1,54 @@
+name: Myntra daily reports
+
+on:
+  # 8:00 AM IST (02:30 UTC). GitHub's own schedule, not the Telegram bot's Cloudflare cron: its free
+  # plan's 5 triggers are all used.
+  schedule:
+    - cron: "30 2 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "report day YYYY-MM-DD (empty = yesterday)"
+        default: ""
+
+concurrency:
+  group: myntra-reports
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/github/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      # the Myntra sessions are read from the worker with the dashboard token
+      DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
+      MYNTRA_REPORT_ACCOUNTS: ${{ vars.MYNTRA_REPORT_ACCOUNTS }}
+      # Drive AGENT WORK folder; new files go through the Drive relay
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      DRIVE_RELAY_URL: ${{ secrets.DRIVE_RELAY_URL }}
+      DRIVE_RELAY_TOKEN: ${{ secrets.DRIVE_RELAY_TOKEN }}
+      AGENT_WORK_FOLDER_ID: ${{ vars.AGENT_WORK_FOLDER_ID }}
+      IN_DATE: ${{ inputs.date }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Fetch the reports
+        run: |
+          set --
+          if [ -n "$IN_DATE" ]; then set -- --date "$IN_DATE"; fi
+          bash scripts/github/ci_run.sh myntra-reports "$@"
+      - name: Upload run output (encrypted)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: myntra-reports-${{ github.run_id }}
+          path: secure/
+          if-no-files-found: ignore
+          retention-days: 3
