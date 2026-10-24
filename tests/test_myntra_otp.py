@@ -32,3 +32,14 @@ def test_otp_message_has_every_account_trip_and_courier(monkeypatch):
     assert table[3].split() == ["BOAT", "Pickup", "111111", "-"]
     assert all(len(line) <= 28 for line in table)
     assert "MMRJ: not read" in text and "24 Oct 2026" in text
+
+
+def test_sheet_rows_in_the_team_layout_without_repeats():
+    from bindal.myntra_otp import pipeline as p
+    rows = [("TLPL", "Return", {"MYS": "012345", "MYE": "856240"}), ("BOAT", "Pickup", {"MYS": "111111", "MYE": "-"})]
+    existing = [["DATE", "PORTAL", "COUNT", "OTP", "STATUS", "Name", ""],
+                ["24-10-2026", "Myntra_Main_TLPL", "17", "856240", "RETURN", "Bhikan", ""]]      # typed by hand
+    new = p.sheet_rows(rows, datetime(2026, 10, 24, 11, 0), existing)
+    assert new == [["24-10-2026", "Myntra_Main_TLPL", "", "012345", "RETURN", "BOT", "FL"],
+                   ["24-10-2026", "Myntra_FF X MUR CC_BOAT", "", "111111", "PICKUP", "BOT", "FL"]]
+    assert p.sheet_rows(rows, datetime(2026, 10, 24), existing + new) == []

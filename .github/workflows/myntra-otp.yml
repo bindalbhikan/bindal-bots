@@ -26,6 +26,9 @@ jobs:
       DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
       DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
       MYNTRA_OTP_SITES: ${{ vars.MYNTRA_OTP_SITES }}
+      # the team's Daily OTP sheet (shared with the service account as editor)
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      MYNTRA_OTP_SHEET_ID: ${{ vars.MYNTRA_OTP_SHEET_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
