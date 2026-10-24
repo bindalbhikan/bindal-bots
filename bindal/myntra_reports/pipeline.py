@@ -143,7 +143,6 @@ def fetch_account(account: str, day: date, dest: Path, wait_minutes: int) -> tup
 def update_workbook(root, rows: list[tuple[date, str, dict]], work: Path) -> str:
     """rows (day, account, split) into AGENT WORK/MYNTRA DAILY RETURN DELIVERY REPORT.xlsx (DATA sheet;
     rows of the same day and portal replaced, DASHBOARD built when missing). Returns its link."""
-    import openpyxl
     from ..core.drive import DriveFile
     from . import workbook
     found = root.children().get(WORKBOOK)
@@ -151,9 +150,8 @@ def update_workbook(root, rows: list[tuple[date, str, dict]], work: Path) -> str
         raise RuntimeError(f"{WORKBOOK} not found in AGENT WORK on Drive")
     drive = DriveFile(found["id"], root.http)
     path = drive.download(work / WORKBOOK, need_edit=True)
-    wb = openpyxl.load_workbook(path)
-    workbook.update(wb, [(d, PORTALS.get(a, a), s) for d, a, s in rows], [PORTALS.get(a, a) for a in ACCOUNTS])
-    wb.save(path)
+    # only DATA's rows change: the dashboard's own formatting and charts (edited in Excel) stay as they are
+    workbook.update_file(path, [(d, PORTALS.get(a, a), s) for d, a, s in rows], [PORTALS.get(a, a) for a in ACCOUNTS])
     drive.upload(path)
     return drive.url
 

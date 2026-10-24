@@ -1,10 +1,18 @@
 """MYNTRA DAILY RETURN DELIVERY REPORT.xlsx: the DATA sheet the bot adds a row to per account and day
 (DATE, PORTAL, CUSTOMER RETURN, RTO, CANCELLED, TOTAL) and a DASHBOARD sheet of formulas over its
 whole columns, so it is up to date whenever the file is opened. C3 picks the day (the latest by
-default; type a date over it to see another day)."""
+default; type a date over it to see another day).
+
+Once the file has a DASHBOARD, update_file() changes only DATA's rows inside the .xlsx (zip): openpyxl
+would drop the charts and anything else it cannot read, and the dashboard's fonts, sizes, alignment
+and charts are edited by hand in Excel. Only a file without a DASHBOARD goes through openpyxl."""
 from __future__ import annotations
 
+import re
+import zipfile
 from datetime import date, datetime
+from pathlib import Path
+from xml.sax.saxutils import escape
 
 from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -87,20 +95,26 @@ def last_row(ws) -> int:
     return r
 
 
-def put_rows(ws, rows: list[tuple[date, str, dict[str, int]]]) -> None:
-    """rows (day, portal, {CUSTOMER RETURN, RTO, CANCELLED, TOTAL}) into DATA, replacing rows of the
-    same day and portal, the whole sheet kept in date then portal order."""
+def merged(existing: list[list], rows: list[tuple[date, str, dict[str, int]]]) -> list[list]:
+    """existing DATA rows [day, portal, 4 figures] with rows replacing those of the same day and
+    portal, in date then portal order."""
     keys = {(d, p) for d, p, _ in rows}
     kept = []
-    for r in range(2, last_row(ws) + 1):
-        v = [ws.cell(r, i).value for i in range(1, 7)]
+    for v in existing:
         if v[0] in (None, ""):
             continue
         d = v[0].date() if isinstance(v[0], datetime) else v[0]
         if (d, str(v[1] or "").strip()) not in keys:
-            kept.append([d, *v[1:]])
+            kept.append([d, *v[1:6]])
     kept += [[d, p, *(s.get(k, 0) for k in HEAD[2:])] for d, p, s in rows]
     kept.sort(key=lambda v: (v[0] if isinstance(v[0], date) else date.min, str(v[1])))
+    return kept
+
+
+def put_rows(ws, rows: list[tuple[date, str, dict[str, int]]]) -> None:
+    """rows (day, portal, {CUSTOMER RETURN, RTO, CANCELLED, TOTAL}) into DATA, replacing rows of the
+    same day and portal, the whole sheet kept in date then portal order."""
+    kept = merged([[ws.cell(r, i).value for i in range(1, 7)] for r in range(2, last_row(ws) + 1)], rows)
     if ws.max_row > 1:
         ws.delete_rows(2, ws.max_row - 1)
     for i, v in enumerate(kept, 2):
@@ -294,3 +308,87 @@ def update(wb, rows: list[tuple[date, str, dict[str, int]]], portals: list[str])
     if DASH not in wb.sheetnames:
         build_dashboard(wb, portals)
     wb.calculation = CalcProperties(fullCalcOnLoad=True)
+
+
+def _data_part(z: zipfile.ZipFile) -> str:
+    """The zip path of the DATA sheet (workbook.xml names it, its rels file points to the part)."""
+    book = z.read("xl/workbook.xml").decode("utf-8")
+    m = re.search(r'<sheet\b[^>]*\bname="%s"[^>]*>' % DATA, book)
+    rid = re.search(r'\br:id="([^"]+)"', m.group(0)) if m else None
+    if not rid:
+        raise RuntimeError("the workbook has no DATA sheet")
+    rels = z.read("xl/_rels/workbook.xml.rels").decode("utf-8")
+    rel = next(r for r in re.findall(r"<Relationship\b[^>]*>", rels) if f'Id="{rid.group(1)}"' in r)
+    target = re.search(r'Target="([^"]+)"', rel).group(1).lstrip("/")
+    return target if target.startswith("xl/") else f"xl/{target}"
+
+
+def _serial(d: date) -> int:
+    return (d - date(1899, 12, 30)).days
+
+
+def update_file(path: Path, rows: list[tuple[date, str, dict[str, int]]], portals: list[str]) -> None:
+    """rows into the workbook at path. With a DASHBOARD: only DATA's rows are rewritten in the zip
+    (each column keeps the style of the first data row), the filter range follows, calcChain goes
+    and Excel recalculates on open; every other part stays byte for byte. Else through openpyxl."""
+    import openpyxl
+    wb = openpyxl.load_workbook(path)
+    if DASH not in wb.sheetnames or DATA not in wb.sheetnames:
+        update(wb, rows, portals)
+        wb.save(path)
+        return
+    ws = wb[DATA]
+    kept = merged([[ws.cell(r, i).value for i in range(1, 7)] for r in range(2, last_row(ws) + 1)], rows)
+
+    with zipfile.ZipFile(path) as z:
+        items = [(i, z.read(i.filename)) for i in z.infolist()]
+        part = _data_part(z)
+    parts = {i.filename: data for i, data in items}
+    sheet = parts[part].decode("utf-8")
+    head = re.search(r'<row\b[^>]*\br="1"[^>]*>.*?</row>', sheet, re.S)
+    first = re.search(r'<row\b[^>]*\br="2"[^>]*>.*?</row>', sheet, re.S)
+    styles: dict[str, str] = {}
+    for attrs in re.findall(r"<c\b([^>]*)>", first.group(0) if first else ""):
+        col = re.search(r'\br="([A-Z]+)2"', attrs)
+        st = re.search(r'\bs="(\d+)"', attrs)
+        if col and st:
+            styles[col.group(1)] = st.group(1)
+
+    def cell(col: str, r: int, body: str, kind: str = "") -> str:
+        s_attr = f' s="{styles[col]}"' if col in styles else ""
+        return f'<c r="{col}{r}"{s_attr}{kind}>{body}</c>'
+    out = [head.group(0) if head else ""]
+    for r, v in enumerate(kept, 2):
+        d, portal, *figs = v
+        cells = [cell("A", r, f"<v>{_serial(d)}</v>") if isinstance(d, date) else "",
+                 cell("B", r, f"<is><t>{escape(str(portal or ''))}</t></is>", ' t="inlineStr"')]
+        cells += [cell(col, r, f"<v>{int(x or 0)}</v>") for col, x in zip("CDEF", figs)]
+        out.append(f'<row r="{r}" spans="1:6">' + "".join(cells) + "</row>")
+    last = max(len(kept) + 1, 2)
+    data = "<sheetData>" + "".join(out) + "</sheetData>"
+    sheet = re.sub(r"<sheetData>.*?</sheetData>|<sheetData/>", lambda _: data, sheet, count=1, flags=re.S)
+    sheet = re.sub(r'<dimension ref="[^"]*"/>', f'<dimension ref="A1:F{last}"/>', sheet, count=1)
+    sheet = re.sub(r'(<autoFilter\b[^>]*\bref=")[^"]*"', lambda m: f'{m.group(1)}A1:F{last}"', sheet, count=1)
+    parts[part] = sheet.encode("utf-8")
+
+    book = parts["xl/workbook.xml"].decode("utf-8")
+    book = re.sub(r'(<definedName\b[^>]*name="_xlnm._FilterDatabase"[^>]*>)DATA!\$A\$1:\$F\$\d+',
+                  lambda m: f"{m.group(1)}DATA!$A$1:$F${last}", book)
+    if "fullCalcOnLoad" not in book:
+        book = (re.sub(r"<calcPr\b", '<calcPr fullCalcOnLoad="1"', book, count=1) if "<calcPr" in book
+                else book.replace("</workbook>", '<calcPr fullCalcOnLoad="1"/></workbook>'))
+    parts["xl/workbook.xml"] = book.encode("utf-8")
+    # the calculation chain lists formula cells; dropped so Excel rebuilds it
+    if "xl/calcChain.xml" in parts:
+        del parts["xl/calcChain.xml"]
+        rels = parts["xl/_rels/workbook.xml.rels"].decode("utf-8")
+        parts["xl/_rels/workbook.xml.rels"] = re.sub(r"<Relationship\b[^>]*calcChain[^>]*/>", "", rels).encode("utf-8")
+        types = parts["[Content_Types].xml"].decode("utf-8")
+        parts["[Content_Types].xml"] = re.sub(r"<Override\b[^>]*calcChain[^>]*/>", "", types).encode("utf-8")
+
+    tmp = path.with_suffix(".tmp.xlsx")
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+        for i, _ in items:
+            if i.filename in parts:
+                z.writestr(i, parts[i.filename])
+    tmp.replace(path)

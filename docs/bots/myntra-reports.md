@@ -22,7 +22,9 @@
   C3 = the day shown (latest by default, type a date to see another), tiles (total / customer
   return / RTO / cancelled, share, vs the day before), by portal for the day and month to date,
   the last 14 days, the last 6 months, three charts. Built when the file has no DASHBOARD sheet
-  (delete the tab to get it rebuilt by the next run).
+  (delete the tab to get it rebuilt by the next run). After that the bot rewrites only DATA's rows inside
+  the .xlsx: fonts, sizes, alignment and charts changed by hand on the DASHBOARD stay (openpyxl
+  would drop the charts).
 * `--backfill-from YYYY-MM-DD`: fills DATA from that day to the day before yesterday from report
   jobs already on the portal (each delivery on its deliver_to_seller_date). Filled from 24 Sep
   2026 (the first day the 30-day delivery report held).
