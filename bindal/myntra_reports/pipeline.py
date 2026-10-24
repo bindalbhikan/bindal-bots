@@ -72,7 +72,8 @@ def summary(label: str, df: pd.DataFrame) -> str:
 
 
 def fetch_account(account: str, day: date, dest: Path, wait_minutes: int) -> tuple[list[tuple[str, Path, str]], list[str]]:
-    """The account's four reports into dest: [(label, file, summary)] and notes for reports not got."""
+    """The account's four reports into dest: [(label, file, summary, {type: rows, "": all rows})] and
+    notes for reports not got."""
     from ..portals import myntra as mp
     from ..return_analysis.sources import myntra_portal
     portal = myntra_portal(account)
@@ -91,7 +92,8 @@ def fetch_account(account: str, day: date, dest: Path, wait_minutes: int) -> tup
             stamp = date.today() if label in SNAPSHOT else day
             path = dest / f"{account} {label} {stamp}.csv"
             path.write_bytes(data)
-            got.append((label, path, summary(label, pd.read_csv(io.BytesIO(data), low_memory=False))))
+            df = pd.read_csv(io.BytesIO(data), low_memory=False)
+            got.append((label, path, summary(label, df), _col(df, "type").value_counts().to_dict() | {"": len(df)}))
         except Exception as exc:  # noqa: BLE001
             if isinstance(exc, mp.SessionExpired):
                 raise
@@ -119,7 +121,7 @@ def run(args) -> int:
                 log.exception("%s reports failed", a)
                 results[a] = []
                 notes.append(f"{a}: {str(exc)[:150]}")
-    files = [p for got in results.values() for _, p, _ in got]
+    files = [p for got in results.values() for _, p, _, _ in got]
     if not files:
         raise RuntimeError("no Myntra report downloaded: " + "; ".join(notes))
 
@@ -139,9 +141,19 @@ def run(args) -> int:
         link = f"https://drive.google.com/drive/folders/{folder.folder_id}"
 
     out = [f"📊 <b>Myntra daily reports · {day:%d %b %Y}</b>"]
+    # yesterday's return deliveries of all accounts together
+    delivered: dict[str, int] = {}
+    for got in results.values():
+        for label, _, _, counts in got:
+            if label == "Return Delivery":
+                for k, v in counts.items():
+                    delivered[k] = delivered.get(k, 0) + v
+    if delivered:
+        split = ", ".join(f"{k} {v}" for k, v in delivered.items() if k)
+        out += ["", f"📦 <b>Total return delivery: {delivered['']}</b>" + (f" ({telegram.esc(split)})" if split else "")]
     for a in accounts:
         out += ["", f"<b>{telegram.esc(a)}</b>"]
-        out += [f"• {telegram.esc(label)}: {telegram.esc(s)}" for label, _, s in results[a]] or ["• no report"]
+        out += [f"• {telegram.esc(label)}: {telegram.esc(s)}" for label, _, s, _ in results[a]] or ["• no report"]
     if link:
         out += ["", f'📁 <a href="{link}">AGENT WORK / {FOLDER} / {day}</a>']
     if notes:

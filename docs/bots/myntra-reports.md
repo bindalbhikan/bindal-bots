@@ -9,6 +9,6 @@
   asked for together; a job already on the portal for the same dates is reused.
 * Files: Drive `BINDAL EXPORTS/AGENT WORK/MYNTRA DAILY REPORTS/<yesterday>/`, e.g.
   `MAIN Orders 2026-10-23.csv`, `MAIN Listings 2026-10-24.csv` (`AGENT_WORK_FOLDER_ID`).
-* Telegram: one message, per account each report's rows (orders: lines, value, cancelled;
+* Telegram: one message, first the total return delivery of all accounts (Return vs RTO), then per account each report's rows (orders: lines, value, cancelled;
   returns / delivery: Return vs RTO; listings: SKUs, active) and the folder link. A report not
   got is named at the end.
