@@ -8,5 +8,6 @@ Cloudflare cron's 5 free triggers are all used). On demand: run the workflow by 
   Related Actions > **Push Inventory** (all its listings), one after the other. 20 Oct 2026: 12
   channels (COCOBLU, Nykaa Fashion, Ajio Api, Myntra x4, Snapdeal, Amazon x2, Meesho, Flipkart).
 * `INV_PUSH_SKIP` (repo variable): channel ids never pushed, comma separated.
-* Telegram only when a channel's push fails (the others are still pushed) or the run fails.
+* Telegram after every run: one message, each channel ✅ pushed or ❌ failed (a failed channel
+  does not stop the others). Not sent on a dry run.
 * GitHub turns off scheduled workflows of a repo with no commits for 60 days; it says so by email.
