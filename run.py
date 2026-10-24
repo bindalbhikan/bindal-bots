@@ -22,7 +22,7 @@
   listings   11:30 AM listing health        python run.py listings --help
   myntra-tat 6:30 PM Myntra courier pickups   python run.py myntra-tat --help
   mis        monthly MIS and plan           python run.py mis --help
-  myntra-reports 8 AM Myntra orders / returns / listings  python run.py myntra-reports --help
+  myntra-reports 10 AM Myntra orders / returns / listings  python run.py myntra-reports --help
 """
 import importlib
 import sys
