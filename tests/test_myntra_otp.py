@@ -26,11 +26,13 @@ def test_otp_message_has_every_account_trip_and_courier(monkeypatch):
     assert couriers == ["MYS", "MYE"]
     assert [(c, t) for c, t, _ in rows] == [("TLPL", "Pickup"), ("TLPL", "Return"), ("BOAT", "Pickup"), ("BOAT", "Return")]
     text = p.message(rows, couriers, notes, datetime(2026, 10, 24, 11, 0))
-    table = text.split("<pre>")[1].split("</pre>")[0].splitlines()
-    assert table[0].split() == ["Acct", "Trip", "MYS", "MYE"]
-    assert table[1].split() == ["TLPL", "Pickup", "461401", "222222"]
-    assert table[3].split() == ["BOAT", "Pickup", "111111", "-"]
-    assert all(len(line) <= 28 for line in table)
+    lines = text.splitlines()
+    assert "<pre>" not in text                                   # plain lines: pastes cleanly into WhatsApp
+    i = lines.index("<b>TLPL</b> (Myntra Main)")
+    assert lines[i + 1] == "Pickup: EK: 222222 | FL: 461401"
+    assert lines[i + 2] == "Return: EK: 222222 | FL: 461402"
+    j = lines.index("<b>BOAT</b> (Myntra FF X MUR CC)")
+    assert lines[j + 1] == "Pickup: EK: no trip | FL: 111111"
     assert "MMRJ: not read" in text and "24 Oct 2026" in text
 
 

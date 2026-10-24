@@ -54,17 +54,24 @@ def read_codes(portal_of=None) -> tuple[list[tuple[str, str, dict[str, str]]], l
     return rows, couriers, notes
 
 
+ACCOUNT_NAMES = {"TLPL": "Myntra Main", "MMRJ": "Myntra DBCC", "BOAT": "Myntra FF X MUR CC"}
+
+
 def message(rows, couriers, notes, now: datetime) -> str:
-    """A narrow table (fits a phone): one line per account and trip, one column per courier."""
-    head = f"{'Acct':<5}{'Trip':<7}" + "".join(f"{c:<8}" for c in couriers)
-    lines = [head.rstrip()] + [f"{code:<5}{label:<7}" + "".join(f"{codes.get(c, '-'):<8}" for c in couriers)
-                               for code, label, codes in rows]
-    out = [f"🔐 <b>Myntra courier OTP · {now:%d %b %Y}</b>",
-           "<i>Pickup = forward pickup, Return = return handover; - = no trip today</i>"]
-    if rows:
-        out.append("<pre>" + telegram.esc("\n".join(line.rstrip() for line in lines)) + "</pre>")
+    """Plain lines, one per account and trip, each code named by its courier as the team writes it
+    (EK / FL): it still reads right when copied out of Telegram into WhatsApp."""
+    out = [f"🔐 <b>Myntra courier OTP · {now:%d %b %Y}</b>"]
+    last = None
+    for code, label, codes in rows:
+        if code != last:
+            out += ["", f"<b>{telegram.esc(code)}</b> ({telegram.esc(ACCOUNT_NAMES.get(code, code))})"]
+            last = code
+        parts = [f"{COURIER_TAGS.get(c, c)}: {codes[c] if codes.get(c, '-') != '-' else 'no trip'}"
+                 for c in sorted(codes, key=lambda c: COURIER_TAGS.get(c, c))]
+        out.append(f"{label}: " + " | ".join(telegram.esc(p) for p in parts))
+    out += ["", "Pickup = forward pickup OTP, Return = return handover OTP"]
     if notes:
-        out += ["⚠️ " + telegram.esc(n) for n in notes]
+        out += [""] + ["⚠️ " + telegram.esc(n) for n in notes]
     return "\n".join(out)
 
 
