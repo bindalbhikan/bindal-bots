@@ -120,7 +120,7 @@ def test_dispatch_deadline_is_the_courier_pickup_time_from_29_jul():
     assert pd.isna(dispatch_deadline(pd.NaT, "BLUEDART"))
 
 
-def test_pickup_tickets_one_per_overdue_order_never_twice(monkeypatch):
+def test_pickup_tickets_one_per_pending_order_never_twice(monkeypatch):
     from bindal.ajio_tat import pipeline as p
     from bindal.portals import ajio
     now = pd.Timestamp("2026-10-23 16:00")
@@ -129,12 +129,13 @@ def test_pickup_tickets_one_per_overdue_order_never_twice(monkeypatch):
     df = pd.DataFrame([
         {**base, "Order ID": "1", "AWB": "A1", "Dispatch Deadline": pd.Timestamp("2026-10-22 12:00")},  # overdue
         {**base, "Order ID": "2", "AWB": "A2", "Dispatch Deadline": pd.Timestamp("2026-10-22 12:00")},  # has ticket
-        {**base, "Order ID": "3", "AWB": "A3", "Dispatch Deadline": pd.Timestamp("2026-10-23 12:00")},  # in grace
+        {**base, "Order ID": "3", "AWB": "A3", "Dispatch Deadline": pd.Timestamp("2026-10-23 12:00")},  # over by hours
         {**base, "Order ID": "4", "AWB": "A4", "Dispatch Deadline": pd.Timestamp("2026-10-23 12:00"),
          "Pickup Status": "Late"},                                                                  # picked
-        {**base, "Order ID": "5", "AWB": "A5", "Dispatch Deadline": pd.Timestamp("2026-10-22 12:00")}])  # courier: picked
+        {**base, "Order ID": "5", "AWB": "A5", "Dispatch Deadline": pd.Timestamp("2026-10-22 12:00")},  # courier: picked
+        {**base, "Order ID": "6", "AWB": "A6", "Dispatch Deadline": pd.Timestamp("2026-10-24 12:00")}])  # due
     sent = []
-    monkeypatch.setattr(p, "courier_pickup_check", lambda pairs: {"A1": "not picked", "A5": "picked"})
+    monkeypatch.setattr(p, "courier_pickup_check", lambda pairs: {"A1": "not picked", "A3": "not picked", "A5": "picked", "A6": "not picked"})
 
     class Client:
         def __init__(self, *a): pass
@@ -149,11 +150,15 @@ def test_pickup_tickets_one_per_overdue_order_never_twice(monkeypatch):
     monkeypatch.setattr(ajio, "AjioClient", Client)
     monkeypatch.setattr(p.time, "sleep", lambda s: None)
     done = p.raise_pickup_tickets(df, now, dry=False)
+    # Over and Due alike, by deadline
     assert [(d["Order ID"], d["Result"]) for d in done] == [("1", "created"), ("2", "already has ticket"),
-                                                            ("5", "courier: picked")]
+                                                            ("5", "courier: picked"), ("3", "created"), ("6", "created")]
     assert sent[0]["orderId"] == "1" and sent[0]["issueType"] == "ORDERS" and sent[0]["ticketType"] == "GENERAL"
     assert sent[0]["subIssueType"] == ajio.PICKUP_NOT_DONE and "A1" in sent[0]["issueTitle"]
     assert "🎫" in p.pickup_ticket_report(done)[0]
+    # TICKET_ONLY_OVER: only orders a day past the deadline, as before
+    monkeypatch.setenv("TICKET_ONLY_OVER", "1")
+    assert p.pickup_ticket_candidates(df, now)["Order ID"].tolist() == ["1", "2", "5"]
 
 
 def test_ticket_ids_land_in_the_master_and_need_the_ajio_report(monkeypatch):

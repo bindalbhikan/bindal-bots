@@ -1,11 +1,9 @@
 name: Myntra daily reports
 
 on:
-  # 10:00 AM IST (04:30 UTC): a report asked for at 7 AM still missed most of the day before (24 Oct
-  # 2026: 23 of 239 MAIN orders), one at 9:30 AM had them all. GitHub's own schedule, not the Telegram bot's Cloudflare cron: its free
-  # plan's 5 triggers are all used.
-  schedule:
-    - cron: "30 4 * * *"
+  # 10:00 AM IST, started by the Telegram bot's Cloudflare cron (worker/src/worker.js): a report asked
+  # for at 7 AM still missed most of the day before (24 Oct 2026: 23 of 239 MAIN orders), one at
+  # 9:30 AM had them all. Not GitHub's own schedule: it ran hours late or not at all.
   workflow_dispatch:
     inputs:
       date:

@@ -1,11 +1,13 @@
 name: Myntra courier OTP
 
 on:
-  # 11:00 AM IST (05:30 UTC). GitHub's own schedule, not the Telegram bot's Cloudflare cron: its free
-  # plan's 5 triggers are all used.
-  schedule:
-    - cron: "30 5 * * *"
+  # Started by the Telegram bot's Cloudflare cron (worker/src/worker.js): 10 AM IST, and 11 AM IST with
+  # retry=1. Not GitHub's own schedule: it ran hours late or not at all (24 Oct 2026: no 11 AM run).
   workflow_dispatch:
+    inputs:
+      retry:
+        description: "1 = send only OTPs the earlier run did not have"
+        default: ""
 
 concurrency:
   group: myntra-otp
@@ -29,11 +31,15 @@ jobs:
       # the team's Daily OTP sheet (shared with the service account as editor)
       GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       MYNTRA_OTP_SHEET_ID: ${{ vars.MYNTRA_OTP_SHEET_ID }}
+      IN_RETRY: ${{ inputs.retry }}
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
       - name: Send the OTPs
-        run: bash scripts/github/ci_run.sh myntra-otp
+        run: |
+          set --
+          if [ -n "$IN_RETRY" ]; then set -- --retry; fi
+          bash scripts/github/ci_run.sh myntra-otp "$@"
       - name: Upload run output (encrypted)
         if: always()
         uses: actions/upload-artifact@v4

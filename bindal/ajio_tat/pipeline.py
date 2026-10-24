@@ -392,12 +392,14 @@ def pickup_pending_report(df, now=None) -> list:
 
 
 def pickup_ticket_candidates(df, now) -> pd.DataFrame:
-    """Packed, not picked up, the pickup deadline passed TICKET_GRACE_HOURS (24) ago (a whole pickup
-    day missed), ordered in the last TRACK_DAYS (15) days: one AJIO ticket per order."""
+    """Packed, not picked up, ordered in the last TRACK_DAYS (15) days: one AJIO ticket per order,
+    whether its pickup deadline has passed (Over) or not yet (Due) - every order of the pickup
+    pending list gets one. TICKET_ONLY_OVER=1: only orders whose deadline passed
+    TICKET_GRACE_HOURS (24) ago, as before 24 Oct 2026."""
     since = now.normalize() - pd.Timedelta(days=num("TRACK_DAYS", 15))
-    grace = pd.Timedelta(hours=num("TICKET_GRACE_HOURS", 24))
-    due = (awaiting_pickup_mask(df) & (df["Dispatch Deadline"] + grace < now) & (df["Order Time"] >= since)
-           & df["Order ID"].notna() & df["AWB"].notna())
+    due = awaiting_pickup_mask(df) & (df["Order Time"] >= since) & df["Order ID"].notna() & df["AWB"].notna()
+    if env("TICKET_ONLY_OVER", "").lower() in ("1", "true", "yes"):
+        due &= df["Dispatch Deadline"] + pd.Timedelta(hours=num("TICKET_GRACE_HOURS", 24)) < now
     return df[due].sort_values("Dispatch Deadline")
 
 
@@ -446,10 +448,10 @@ def courier_pickup_check(pairs: pd.DataFrame) -> dict[str, str]:
 
 
 def raise_pickup_tickets(df, now, dry: bool) -> list[dict]:
-    """One AJIO ticket (ORDERS > PICKUP NOT DONE / SHIPMENT NOT SCANNING) per overdue order whose
+    """One AJIO ticket (ORDERS > PICKUP NOT DONE / SHIPMENT NOT SCANNING) per pickup pending order whose
     pickup neither the AJIO order report (already read into df this run) nor the courier's site,
     checked again here, shows. An order that already has a pickup ticket from the last 30 days is
-    skipped, so a ticket is never raised twice; at most TICKET_CAP (40) per run. Instead, while the
+    skipped, so a ticket is never raised twice; at most TICKET_CAP (200) per run. Instead, while the
     parcel is still not picked up, that ticket gets a follow-up comment once our last word on it is
     TICKET_FOLLOWUP_HOURS (24) old (a comment re-opens a resolved ticket); at most TICKET_FOLLOWUP_CAP
     (40) per run."""
@@ -463,7 +465,7 @@ def raise_pickup_tickets(df, now, dry: bool) -> list[dict]:
     have = {str(t.get("orderId") or "").strip(): str(t.get("ticketId")) for t in old
             if str(t.get("subCategory") or "").upper() == PICKUP_NOT_DONE}
     courier = courier_pickup_check(cands)
-    pob, cap, done = env("POB_ID", "DV00348890"), num("TICKET_CAP", 40), []
+    pob, cap, done = env("POB_ID", "DV00348890"), num("TICKET_CAP", 200), []
     follow_cap, follow_hours = num("TICKET_FOLLOWUP_CAP", 40), num("TICKET_FOLLOWUP_HOURS", 24)
     for _, r in cands.iterrows():
         oid = str(r["Order ID"]).strip()

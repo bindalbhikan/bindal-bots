@@ -18,7 +18,7 @@
   evening    8 PM summary of the day        python run.py evening --help
   weekly     Monday business review         python run.py weekly --help
   deadstock  monthly dead / slow stock      python run.py deadstock --help
-  myntra-otp 11 AM Myntra pickup / return OTPs python run.py myntra-otp --help
+  myntra-otp 10 / 11 AM Myntra pickup / return OTPs python run.py myntra-otp --help
   listings   11:30 AM listing health        python run.py listings --help
   myntra-tat 6:30 PM Myntra courier pickups   python run.py myntra-tat --help
   mis        monthly MIS and plan           python run.py mis --help

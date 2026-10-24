@@ -52,9 +52,11 @@ jobs:
       SHADOWFAX_TOKEN: ${{ secrets.SHADOWFAX_TOKEN }}
       AJIO_CHANNEL_IDS: ${{ vars.AJIO_CHANNEL_IDS }}
       TAT_LOOKBACK_DAYS: ${{ inputs.days || vars.TAT_LOOKBACK_DAYS }}
-      # on unless the repo variable says 0: an AJIO "pickup not done" ticket per order not picked up a
-      # day after its pickup deadline (AJIO order report and the courier's site both show no pickup)
+      # on unless the repo variable says 0: an AJIO "pickup not done" ticket per pickup pending order,
+      # Over or Due (AJIO order report and the courier's site both show no pickup);
+      # TICKET_ONLY_OVER=1: only orders TICKET_GRACE_HOURS past their deadline
       AJIO_PICKUP_TICKETS: ${{ vars.AJIO_PICKUP_TICKETS || '1' }}
+      TICKET_ONLY_OVER: ${{ vars.TICKET_ONLY_OVER }}
       TICKET_GRACE_HOURS: ${{ vars.TICKET_GRACE_HOURS }}
       TICKET_CAP: ${{ vars.TICKET_CAP }}
       IN_ORDERS: ${{ inputs.orders }}

@@ -1,4 +1,4 @@
-"""Myntra courier OTPs (11 AM): today's PICKUP and RETURN one-time codes of the TLPL, MMRJ and BOAT
+"""Myntra courier OTPs (10 AM, again at 11 AM with --retry): today's PICKUP and RETURN one-time codes of the TLPL, MMRJ and BOAT
 warehouses, from the partner portal's Orders > OTC page (api/location/otc), to Telegram.
 
 Each OMSGuru channel is one Myntra seller account and its Surat warehouse (the warehouse code
@@ -9,6 +9,8 @@ The codes go to Telegram and into the team's "Daily OTP 2026" Google Sheet (MYNT
 one row per code in its own layout: DATE, PORTAL, COUNT (left empty, filled in by hand), OTP,
 STATUS (PICKUP / RETURN), Name (MYNTRA_OTP_NAME, Bhikan) and the courier as the team writes it (MYE = EK, MYS = FL).
 A code the sheet already has for that date, portal and status is not added again. Nothing is logged.
+--retry (11 AM): a courier often has no trip yet at 10 AM. The codes are read again; Telegram
+hears only when there is a code the sheet did not have yet (or the sheet has no code of today at all).
 """
 from __future__ import annotations
 
@@ -98,28 +100,37 @@ def sheet_rows(rows, now: datetime, existing: list[list[str]]) -> list[list[str]
     return out
 
 
-def write_sheet(rows, now: datetime) -> int:
-    """Append today's codes to the OTP sheet; the number of rows added."""
+def write_sheet(rows, now: datetime) -> tuple[int, bool]:
+    """Append today's codes to the OTP sheet: (rows added, whether the sheet had a code of today before)."""
     import gspread
     from ..core.gauth import credentials
     ws = gspread.authorize(credentials(["https://www.googleapis.com/auth/spreadsheets"])).open_by_key(
         env("MYNTRA_OTP_SHEET_ID") or SHEET_ID).sheet1
-    new = sheet_rows(rows, now, ws.get_all_values())
+    existing = ws.get_all_values()
+    had_today = any(r and str(r[0]).strip() == f"{now:%d-%m-%Y}" for r in existing)
+    new = sheet_rows(rows, now, existing)
     if new:
         ws.append_rows(new, value_input_option="RAW")       # RAW: an OTP keeps its leading zeros
-    return len(new)
+    return len(new), had_today
 
 
 def run(args) -> int:
     rows, couriers, notes = read_codes()
     now = datetime.now()
+    added, had_today = None, False
     if rows and not args.no_sheet:
         try:
-            log.info("OTP sheet: %d rows added", write_sheet(rows, now))
+            added, had_today = write_sheet(rows, now)
+            log.info("OTP sheet: %d rows added", added)
         except Exception as exc:  # noqa: BLE001 - the Telegram message still goes out
             log.warning("OTP sheet not updated: %s", exc)
             notes.append(f"OTP sheet not updated: {type(exc).__name__} {str(exc)[:80]}")
+    if args.retry and added == 0 and had_today:
+        log.info("Retry: no OTP the 10 AM run did not already send; no message")
+        return 0
     text = message(rows, couriers, notes, now)
+    if args.retry:
+        text = text.replace("</b>", " · 11 AM update</b>", 1)
     print(text) if args.no_telegram else telegram.send(text)
     return 0 if rows else 1
 
@@ -128,4 +139,6 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="run.py myntra-otp", description="Myntra courier pickup / return OTPs")
     p.add_argument("--no-telegram", action="store_true", help="print the message instead of sending it")
     p.add_argument("--no-sheet", action="store_true", help="leave the Daily OTP sheet alone")
+    p.add_argument("--retry", action="store_true",
+                   help="11 AM: send only when there is an OTP the sheet does not have yet")
     return run_bot("Myntra courier OTP", p, run, argv)

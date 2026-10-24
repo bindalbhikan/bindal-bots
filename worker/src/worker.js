@@ -106,6 +106,26 @@ const COMMANDS = {
     minutes: 4,
     inputs: monthArg,
   },
+  myntraotp: {
+    workflow: "myntra-otp.yml",
+    icon: "🔐",
+    name: "Myntra courier OTP",
+    examples: ["/myntraotp"],
+    minutes: 1,
+    inputs: (args) => (args.length === 0 ? {} : "Use /myntraotp"),
+  },
+  myntrareports: {
+    workflow: "myntra-reports.yml",
+    icon: "📊",
+    name: "Myntra daily reports",
+    examples: ["/myntrareports", "/myntrareports 2026-10-23"],
+    minutes: 8,
+    inputs: (args) => {
+      if (args.length === 0) return {};
+      if (args.length === 1 && DATE.test(args[0])) return { date: args[0] };
+      return "Use /myntrareports or /myntrareports YYYY-MM-DD";
+    },
+  },
 };
 
 function monthArg(args) {
@@ -114,9 +134,10 @@ function monthArg(args) {
   return "Month must be YYYY-MM, e.g. 2026-09";
 }
 
-// Daily automatic runs, in IST. Cloudflare cron is UTC (IST = UTC + 5:30), so each `cron`
-// below must also be listed under [triggers] in wrangler.toml. GitHub's own `schedule:`
-// is not used: it skipped runs.
+// Daily automatic runs, in IST. Cloudflare cron is UTC (IST = UTC + 5:30); each `cron` below
+// ("minute hour") must be one of the times the [triggers] in wrangler.toml fire at (one trigger
+// can list several hours: the free plan allows 5 triggers). GitHub's own `schedule:` is not
+// used: it ran hours late or skipped runs (24 Oct 2026: the 11 AM OTP never ran).
 const SCHEDULE = [
   // 7 AM: Myntra report requests - they queue on the portal for a while. The same Myntra report
   // twice within 15 minutes is refused, so the SPF request leaves the order report to 9 AM.
@@ -134,6 +155,11 @@ const SCHEDULE = [
   { ist: "9:00 AM on the 3rd", cron: "30 3 * * *", day: 3, cmd: "ajioads" },
   { ist: "9:00 AM on the 5th", cron: "30 3 * * *", day: 5, cmd: "ajioads", label: "AJIO Ads / TOT gap (if missed)",
     inputs: { if_missing: "1" } },
+  // 10 AM: Myntra courier OTPs and yesterday's Myntra reports; 11 AM: the OTPs again for couriers
+  // that had no trip yet at 10 (sent only when a new code came)
+  { ist: "10:00 AM daily", cron: "30 4 * * *", cmd: "myntraotp" },
+  { ist: "10:00 AM daily", cron: "30 4 * * *", cmd: "myntrareports" },
+  { ist: "11:00 AM daily", cron: "30 5 * * *", cmd: "myntraotp", label: "Myntra OTP retry", inputs: { retry: "1" } },
   { ist: "2:00 PM on the 15th", cron: "30 8 * * *", day: 15, cmd: "returns" },
   { ist: "3:30 PM daily", cron: "0 10 * * *", cmd: "sale" },
   { ist: "5:30 PM daily", cron: "0 12 * * *", cmd: "vms" },
@@ -295,13 +321,15 @@ export default {
   // Cron trigger: start the reports scheduled for this time. With no chat_id input the
   // workflow sends its report to its default TELEGRAM_CHAT_ID, same as a scheduled run.
   async scheduled(event, env, ctx) {
-    // Matched on minute + hour only: Cloudflare may hand back the day-of-week
-    // field in another form ("WED,SAT" vs "4,7"), and the times are unique.
-    const at = (c) => String(c).trim().split(/\s+/).slice(0, 2).join(" ");
+    // Matched on the UTC minute + hour the trigger fired at: one trigger lists several hours
+    // ("30 1,3,4,5,8 * * *"), and Cloudflare may hand the cron text back in another form.
+    const at = (c) => String(c).trim().split(/\s+/).slice(0, 2).map(Number).join(" ");
+    const fired = new Date(event.scheduledTime);
+    const now = `${fired.getUTCMinutes()} ${fired.getUTCHours()}`;
     // `day` = IST day of the month, `weekdays` = IST weekdays (0 Sunday .. 6 Saturday): the free
     // plan allows 5 cron triggers, so monthly / weekly runs ride on daily ones
     const ist = new Date(event.scheduledTime + 5.5 * 3600 * 1000);
-    const due = SCHEDULE.filter((s) => at(s.cron) === at(event.cron) && (!s.day || s.day === ist.getUTCDate())
+    const due = SCHEDULE.filter((s) => at(s.cron) === now && (!s.day || s.day === ist.getUTCDate())
       && (!s.weekdays || s.weekdays.includes(ist.getUTCDay())));
     ctx.waitUntil(
       Promise.all(

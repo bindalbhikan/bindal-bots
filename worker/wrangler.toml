@@ -4,14 +4,17 @@ compatibility_date = "2025-09-01"
 workers_dev = true
 
 # Daily auto runs (UTC; IST = UTC + 5:30). Which report runs at which time: SCHEDULE in src/worker.js.
-# The free plan allows 5 cron triggers per account: monthly / weekly runs ride on daily ones.
-#   30 1 * * *  ->  7:00 AM IST  Myntra report requests (SJIT, Myntra SPF; return analysis on the 15th)
-#   30 3 * * *  ->  9:00 AM IST  Myntra SPF + AJIO SPF masters (AJIO tickets / replies Wed + Sat)
-#   30 8 * * *  ->  2:00 PM IST, only on the 15th  return analysis
-#   0 10 * * *  ->  3:30 PM IST  sale
-#   0 12 * * *  ->  5:30 PM IST  vms, ajiotat
+# The free plan allows 5 cron triggers per account; one trigger lists several hours, and
+# monthly / weekly runs ride on daily ones.
+#   1:30 UTC  ->  7:00 AM IST  Myntra report requests (SJIT, Myntra SPF; return analysis on the 15th)
+#   3:30      ->  9:00 AM IST  Myntra SPF + AJIO SPF masters (AJIO tickets / replies Wed + Sat)
+#   4:30      -> 10:00 AM IST  Myntra courier OTP, Myntra daily reports
+#   5:30      -> 11:00 AM IST  Myntra courier OTP retry
+#   8:30      ->  2:00 PM IST, only on the 15th  return analysis
+#   10:00     ->  3:30 PM IST  sale
+#   12:00     ->  5:30 PM IST  vms, ajiotat
 [triggers]
-crons = ["30 1 * * *", "30 3 * * *", "30 8 * * *", "0 10 * * *", "0 12 * * *"]
+crons = ["30 1,3,4,5,8 * * *", "0 10,12 * * *"]
 
 [vars]
 # Extra Telegram users allowed to send commands: the EXTRA_CHAT_IDS secret (comma-separated chat ids,

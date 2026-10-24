@@ -37,3 +37,8 @@
   model (left out when it is not available). Pickups pending: a ready-to-copy mail with the AWB
   table when it fits in one message; with more AWBs the mail comes alone and every AWB (courier,
   Over / Due, order time, RTS, deadline) is in the attached `AJIO_pickup_pending_*.xlsx`.
+* **Pickup tickets** (on by default, `AJIO_PICKUP_TICKETS`): one AJIO "pickup not done" ticket per
+  order of the pickup pending list, Over and Due alike (since 24 Oct 2026; `TICKET_ONLY_OVER=1` goes
+  back to orders `TICKET_GRACE_HOURS` past the deadline), when the AJIO report and the courier's site
+  show no pickup; at most `TICKET_CAP` (200) per run, never twice per order (30 days), a follow-up
+  comment every 24 h while still not picked up. The ticket id goes into the master's Pickup Ticket.
