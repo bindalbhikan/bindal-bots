@@ -169,3 +169,41 @@ def test_ticket_ids_land_in_the_master_and_need_the_ajio_report(monkeypatch):
     out, rep = p.pickup_tickets(df, args, ["AJIO order report not read: timeout"])
     assert pd.isna(out.loc[0, "Pickup Ticket"]) and out.loc[1, "Pickup Ticket"] == "OLD"
     assert "not raised" in rep[0]
+
+
+
+def test_open_pickup_ticket_gets_one_follow_up_a_day(monkeypatch):
+    from bindal.ajio_tat import pipeline as p
+    from bindal.portals import ajio
+    now = pd.Timestamp("2026-10-25 17:30")
+    base = {"Process Status": "On Time", "Pickup Status": "Pending Pickup", "Courier": "BLUEDART",
+            "Order Time": pd.Timestamp("2026-10-22 11:00"), "RTS Time": pd.Timestamp("2026-10-22 15:00"),
+            "Dispatch Deadline": pd.Timestamp("2026-10-23 12:00")}
+    df = pd.DataFrame([{**base, "Order ID": "1", "AWB": "A1"}, {**base, "Order ID": "2", "AWB": "A2"},
+                       {**base, "Order ID": "3", "AWB": "A3"}])
+    comments = []
+
+    class Client:
+        seller_id = "me"
+        def __init__(self, *a): pass
+        def login(self): pass
+        def ticket_list(self, a, b):
+            return [{"orderId": o, "ticketId": "T" + o, "subCategory": ajio.PICKUP_NOT_DONE} for o in ("1", "2", "3")]
+        def ticket_detail(self, tid):
+            if tid == "T2":      # we commented 3 hours ago: not yet
+                return {"createdDate": "2026-10-23T15:36:43.67",
+                        "comments": [{"authorType": "SELLER", "createdAt": "2026-10-25T14:30:00"}]}
+            return {"createdDate": "2026-10-23T15:36:43.67", "comments": []}
+        def comment(self, tid, text):
+            comments.append((tid, text))
+
+    monkeypatch.setenv("AJIO_USERNAME", "x@y.com")
+    monkeypatch.setattr(ajio, "AjioClient", Client)
+    monkeypatch.setattr(p.time, "sleep", lambda s: None)
+    monkeypatch.setattr(p, "courier_pickup_check", lambda c: {"A1": "not picked", "A2": "not picked", "A3": "picked"})
+    done = p.raise_pickup_tickets(df, now, dry=False)
+    assert [(d["Order ID"], d["Result"]) for d in done] == [("1", "followed up"), ("2", "already has ticket"),
+                                                            ("3", "already has ticket")]
+    assert comments == [("T1", "Pickup is still pending for Order ID 1 (AWB A1). Kindly arrange the pickup today, "
+                               "and no penalty should be applied to this order.")]
+    assert any("Followed up 1" in str(line) for line in p.pickup_ticket_report(done))
