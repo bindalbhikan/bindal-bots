@@ -467,6 +467,7 @@ def raise_pickup_tickets(df, now, dry: bool) -> list[dict]:
     courier = courier_pickup_check(cands)
     pob, cap, done = env("POB_ID", "DV00348890"), num("TICKET_CAP", 200), []
     follow_cap, follow_hours = num("TICKET_FOLLOWUP_CAP", 40), num("TICKET_FOLLOWUP_HOURS", 24)
+    gap = num("TICKET_DELAY_MS", 30) / 1000     # pause between two AJIO ticket / comment calls
     for _, r in cands.iterrows():
         oid = str(r["Order ID"]).strip()
         rec = {"Order ID": oid, "AWB": str(r["AWB"]), "Courier": str(r["Courier"]),
@@ -480,7 +481,7 @@ def raise_pickup_tickets(df, now, dry: bool) -> list[dict]:
                     if due_followup(ticket, client.seller_id, now, follow_hours):
                         if not dry:
                             client.comment(have[oid], pickup_followup_text(r))
-                            time.sleep(1.2)
+                            time.sleep(gap)
                         rec["Result"] = "follow-up due (dry run)" if dry else "followed up"
                 except Exception as exc:  # noqa: BLE001 - the ticket keeps waiting for the next run
                     rec["Result"] = f"error: follow-up {exc}"[:200]
@@ -495,7 +496,7 @@ def raise_pickup_tickets(df, now, dry: bool) -> list[dict]:
             try:
                 rec.update(Ticket=client.create_ticket(pickup_payload(oid, subject, description, pob,
                                                                       env("AJIO_USERNAME"))), Result="created")
-                time.sleep(1.2)
+                time.sleep(gap)
             except Exception as exc:  # noqa: BLE001 - the next order still gets its ticket
                 rec["Result"] = f"error: {exc}"[:200]
         done.append(rec)

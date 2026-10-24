@@ -41,4 +41,4 @@
   order of the pickup pending list, Over and Due alike (since 24 Oct 2026; `TICKET_ONLY_OVER=1` goes
   back to orders `TICKET_GRACE_HOURS` past the deadline), when the AJIO report and the courier's site
   show no pickup; at most `TICKET_CAP` (200) per run, never twice per order (30 days), a follow-up
-  comment every 24 h while still not picked up. The ticket id goes into the master's Pickup Ticket.
+  comment every 24 h while still not picked up. `TICKET_DELAY_MS` (30) between two ticket calls. The ticket id goes into the master's Pickup Ticket.
