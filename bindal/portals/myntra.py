@@ -270,6 +270,15 @@ class MyntraPortal:
         """Raises SessionExpired when the saved session no longer works."""
         self._call("GET", "/report/jobs/getWaitingTime")
 
+    def otc(self, warehouse_id, trip: str) -> list[dict]:
+        """The one-time codes the courier asks for at a warehouse (Orders > OTC page): trip PICKUP
+        (forward pickup) or RETURN (return handover). One entry per courier: courierCode (MYS / MYE),
+        otc (None when the courier has no trip today) and its status message."""
+        data = self._call("GET", f"{API.rsplit('/', 1)[0]}/location/otc",
+                          params={"warehouse": warehouse_id, "trip": trip})
+        return [{"courier": o.get("courierCode"), "otc": o.get("otc"),
+                 "message": (o.get("status") or {}).get("statusMessage")} for o in data.get("otcDetails") or []]
+
     def jobs(self, size: int = 50) -> list[dict]:
         return self._call("GET", "/report/jobs/search",
                           params={"fetchSize": size, "sortBy": "id", "sortOrder": "desc", "start": 0}).get("data") or []

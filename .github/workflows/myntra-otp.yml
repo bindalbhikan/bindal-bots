@@ -1,0 +1,41 @@
+name: Myntra courier OTP
+
+on:
+  # 11:00 AM IST (05:30 UTC). GitHub's own schedule, not the Telegram bot's Cloudflare cron: its free
+  # plan's 5 triggers are all used.
+  schedule:
+    - cron: "30 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: myntra-otp
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TZ: Asia/Kolkata
+      RUN_MODE: github-actions
+      # the repo is public: the run's log and output are uploaded only encrypted (scripts/github/ci_run.sh)
+      ARTIFACT_KEY: ${{ secrets.ARTIFACT_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      # the Myntra sessions are read from the worker with the dashboard token
+      DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+      DASHBOARD_TOKEN: ${{ secrets.DASHBOARD_TOKEN }}
+      MYNTRA_OTP_SITES: ${{ vars.MYNTRA_OTP_SITES }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Send the OTPs
+        run: bash scripts/github/ci_run.sh myntra-otp
+      - name: Upload run output (encrypted)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: myntra-otp-${{ github.run_id }}
+          path: secure/
+          if-no-files-found: ignore
+          retention-days: 3
